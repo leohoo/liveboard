@@ -24,7 +24,8 @@
     }
 
     setStatus('Connecting...', '');
-    eventSource = new EventSource('/events');
+    var tzOffset = new Date().getTimezoneOffset();
+    eventSource = new EventSource('/events?tz=' + tzOffset);
 
     eventSource.onopen = function() {
       reconnectAttempts = 0;

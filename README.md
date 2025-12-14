@@ -25,6 +25,22 @@ npm install
 
 ## Configuration
 
+### Set timezone (important!)
+
+The server uses the system timezone. Set it on your Raspberry Pi:
+
+```bash
+sudo timedatectl set-timezone Asia/Tokyo
+```
+
+Or set `TZ` environment variable when starting:
+
+```bash
+TZ=Asia/Tokyo npm start
+```
+
+### Settings
+
 Copy the default settings:
 
 ```bash

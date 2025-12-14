@@ -39,6 +39,9 @@ app.use(express.json());
 // Store connected clients
 var clients = [];
 
+// Client timezone offset (minutes from UTC, e.g., -540 for JST)
+var clientTzOffset = null;
+
 // Weather data cache
 var weatherData = {
   temp: '--',
@@ -98,6 +101,7 @@ function fetchCalendar() {
     }
 
     https.get(cal.url, function(res) {
+      res.setEncoding('utf8');
       var icsData = '';
       res.on('data', function(chunk) { icsData += chunk; });
       res.on('end', function() {
@@ -158,33 +162,56 @@ function finishCalendarUpdate(allEvents) {
 function parseICS(icsData, badge) {
   var result = { today: [], tomorrow: [] };
 
-  // Get today and tomorrow boundaries in local time
-  var now = new Date();
-  var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  var tomorrowStart = new Date(todayStart);
-  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-  var dayAfterStart = new Date(tomorrowStart);
-  dayAfterStart.setDate(dayAfterStart.getDate() + 1);
+  // Use client timezone if available, otherwise server timezone
+  // clientTzOffset is in minutes (e.g., -540 for JST which is UTC+9)
+  // getTimezoneOffset() returns positive for west of UTC, negative for east
+  var tzOffset = clientTzOffset !== null ? clientTzOffset : new Date().getTimezoneOffset();
 
-  // Cutoff: hide events that ended more than 1 hour ago
-  var hideCutoff = new Date(now.getTime() - 60 * 60 * 1000);
-
-  // Helper: format date as YYYYMMDD
-  function dateStr(d) {
-    return d.getFullYear() +
-      (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1) +
-      (d.getDate() < 10 ? '0' : '') + d.getDate();
+  // Helper: get date components in client's timezone
+  function toClientTime(d) {
+    // Adjust timestamp to client timezone
+    var utc = d.getTime() + d.getTimezoneOffset() * 60000;
+    return new Date(utc - tzOffset * 60000);
   }
 
-  // Helper: format time as HH:MM
+  // Helper: format date as YYYYMMDD in client timezone
+  function dateStr(d) {
+    var ct = toClientTime(d);
+    return ct.getFullYear() +
+      (ct.getMonth() + 1 < 10 ? '0' : '') + (ct.getMonth() + 1) +
+      (ct.getDate() < 10 ? '0' : '') + ct.getDate();
+  }
+
+  // Helper: format time as HH:MM in client timezone
   function timeStr(d) {
-    var h = d.getHours();
-    var m = d.getMinutes();
+    var ct = toClientTime(d);
+    var h = ct.getHours();
+    var m = ct.getMinutes();
     return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
   }
 
-  var todayStr = dateStr(todayStart);
-  var tomorrowStr = dateStr(tomorrowStart);
+  // Get today and tomorrow in client timezone
+  var now = new Date();
+  var clientNow = toClientTime(now);
+
+  // Format today/tomorrow as YYYYMMDD strings
+  var todayStr = clientNow.getFullYear() +
+    (clientNow.getMonth() + 1 < 10 ? '0' : '') + (clientNow.getMonth() + 1) +
+    (clientNow.getDate() < 10 ? '0' : '') + clientNow.getDate();
+
+  var tomorrowDate = new Date(clientNow);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  var tomorrowStr = tomorrowDate.getFullYear() +
+    (tomorrowDate.getMonth() + 1 < 10 ? '0' : '') + (tomorrowDate.getMonth() + 1) +
+    (tomorrowDate.getDate() < 10 ? '0' : '') + tomorrowDate.getDate();
+
+  // Calculate UTC timestamps for today/tomorrow boundaries in client timezone
+  // Midnight in client timezone = UTC midnight + client offset
+  var todayStart = new Date(Date.UTC(clientNow.getFullYear(), clientNow.getMonth(), clientNow.getDate()) + tzOffset * 60000);
+  var dayAfterStart = new Date(todayStart.getTime() + 2 * 24 * 60 * 60 * 1000);
+
+  // Cutoff: hide events that ended more than 1 hour ago
+  var hideCutoff = new Date(now.getTime() - 60 * 60 * 1000);
 
   // Parse with ical.js
   var jcalData = ICAL.parse(icsData);
@@ -389,6 +416,15 @@ app.get('/events', function(req, res) {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.flushHeaders();
+
+  // Capture client timezone offset
+  var tz = req.query.tz;
+  if (tz !== undefined && clientTzOffset === null) {
+    clientTzOffset = parseInt(tz, 10);
+    console.log('Client timezone offset:', clientTzOffset, 'minutes (UTC' + (clientTzOffset <= 0 ? '+' : '-') + Math.abs(clientTzOffset / 60) + ')');
+    // Refetch calendar with correct timezone
+    fetchCalendar();
+  }
 
   // Add client to list
   var clientId = Date.now();
