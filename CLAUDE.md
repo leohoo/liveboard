@@ -62,20 +62,24 @@ Large calendars (1000+ events) can cause CPU spikes on Raspberry Pi. Two optimiz
 
 1. **Pre-filter past events**: Skip single events in the past and recurring events with UNTIL before today. Avoids creating expensive ICAL.Event objects.
 
-2. **Iterator start date**: Start recurring event iterator from today instead of event start date. Prevents iterating through years of past occurrences.
+2. **Skip past occurrences**: Don't pass start time to iterator (corrupts event times). Instead, skip past occurrences with continue/break.
 
 ```javascript
 // Pre-filter (cheap check on raw vevent)
 if (!rruleProp && startDate < todayStart) return; // Skip past single events
 if (rruleVal.until && untilDate < todayStart) return; // Skip ended recurrences
 
-// Iterator optimization
-var iterStart = ICAL.Time.fromJSDate(todayStart, false);
-var iter = event.iterator(iterStart); // Start from today, not event start
+// Iterator - don't pass start time (would cause all times to show 00:00)
+var iter = event.iterator();
+while ((next = iter.next()) && count < maxIterations) {
+  if (jsDate < todayStart) continue; // Skip past occurrences
+  if (jsDate >= dayAfterStart) break; // Stop after tomorrow
+  // Process event...
+}
 ```
 
 Before: 4223 events → 108 seconds, 100% CPU
-After: 4223 events → 3.7 seconds, then idle
+After: 4223 events → ~4 seconds, then idle
 
 ## Git Workflow
 
