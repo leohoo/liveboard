@@ -2,8 +2,8 @@ var express = require('express');
 var path = require('path');
 var https = require('https');
 var fs = require('fs');
-var ICAL = require('ical.js');
 var Lunar = require('lunar-javascript').Lunar;
+var calendar = require('./calendar');
 
 var app = express();
 var PORT = process.env.PORT || 3000;
@@ -92,7 +92,6 @@ function broadcastBrightness() {
 
 // Fetch calendar events from all configured calendars
 function fetchCalendar() {
-  console.log('Fetching calendar, clientTzOffset:', clientTzOffset);
   var calendars = settings.calendars || [];
   if (calendars.length === 0) {
     console.log('No calendars configured');
@@ -114,7 +113,7 @@ function fetchCalendar() {
       res.on('data', function(chunk) { icsData += chunk; });
       res.on('end', function() {
         try {
-          var events = parseICS(icsData, cal.badge);
+          var events = calendar.parseICS(icsData, cal.badge, clientTzOffset);
           allEvents.today = allEvents.today.concat(events.today);
           allEvents.tomorrow = allEvents.tomorrow.concat(events.tomorrow);
         } catch (e) {
@@ -164,177 +163,6 @@ function finishCalendarUpdate(allEvents) {
   calendarEvents = allEvents;
   console.log('Calendar updated:', calendarEvents.today.length, 'today,', calendarEvents.tomorrow.length, 'tomorrow');
   broadcastCalendar();
-}
-
-// Parse ICS format using ical.js and return today's and tomorrow's events
-function parseICS(icsData, badge) {
-  var result = { today: [], tomorrow: [] };
-
-  // Use client timezone if available, otherwise server timezone
-  // clientTzOffset is in minutes (e.g., -540 for JST which is UTC+9)
-  // getTimezoneOffset() returns positive for west of UTC, negative for east
-  var tzOffset = clientTzOffset !== null ? clientTzOffset : new Date().getTimezoneOffset();
-
-  // Helper: get date components in client's timezone
-  function toClientTime(d) {
-    // Adjust timestamp to client timezone
-    var utc = d.getTime() + d.getTimezoneOffset() * 60000;
-    return new Date(utc - tzOffset * 60000);
-  }
-
-  // Helper: format date as YYYYMMDD in client timezone
-  function dateStr(d) {
-    var ct = toClientTime(d);
-    return ct.getFullYear() +
-      (ct.getMonth() + 1 < 10 ? '0' : '') + (ct.getMonth() + 1) +
-      (ct.getDate() < 10 ? '0' : '') + ct.getDate();
-  }
-
-  // Helper: format time as HH:MM in client timezone
-  function timeStr(d) {
-    var ct = toClientTime(d);
-    var h = ct.getHours();
-    var m = ct.getMinutes();
-    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
-  }
-
-  // Get today and tomorrow in client timezone
-  var now = new Date();
-  var clientNow = toClientTime(now);
-
-  // Format today/tomorrow as YYYYMMDD strings
-  var todayStr = clientNow.getFullYear() +
-    (clientNow.getMonth() + 1 < 10 ? '0' : '') + (clientNow.getMonth() + 1) +
-    (clientNow.getDate() < 10 ? '0' : '') + clientNow.getDate();
-
-  var tomorrowDate = new Date(clientNow);
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  var tomorrowStr = tomorrowDate.getFullYear() +
-    (tomorrowDate.getMonth() + 1 < 10 ? '0' : '') + (tomorrowDate.getMonth() + 1) +
-    (tomorrowDate.getDate() < 10 ? '0' : '') + tomorrowDate.getDate();
-
-  // Calculate UTC timestamps for today/tomorrow boundaries in client timezone
-  // Midnight in client timezone = UTC midnight + client offset
-  var todayStart = new Date(Date.UTC(clientNow.getFullYear(), clientNow.getMonth(), clientNow.getDate()) + tzOffset * 60000);
-  var dayAfterStart = new Date(todayStart.getTime() + 2 * 24 * 60 * 60 * 1000);
-
-  // Cutoff: hide events that ended more than 1 hour ago
-  var hideCutoff = new Date(now.getTime() - 60 * 60 * 1000);
-
-  // Parse with ical.js
-  var jcalData = ICAL.parse(icsData);
-  var vcalendar = new ICAL.Component(jcalData);
-  var vevents = vcalendar.getAllSubcomponents('vevent');
-
-  // Track recurrence exceptions (RECURRENCE-ID events)
-  var exceptions = {};
-  vevents.forEach(function(vevent) {
-    var recurrenceId = vevent.getFirstPropertyValue('recurrence-id');
-    if (recurrenceId) {
-      var uid = vevent.getFirstPropertyValue('uid');
-      if (!exceptions[uid]) exceptions[uid] = {};
-      exceptions[uid][recurrenceId.toString()] = vevent;
-    }
-  });
-
-  vevents.forEach(function(vevent) {
-    // Skip recurrence exceptions (handled separately)
-    if (vevent.getFirstPropertyValue('recurrence-id')) return;
-
-    var event = new ICAL.Event(vevent);
-    var uid = event.uid;
-    var summary = event.summary || '(No title)';
-    var isAllDay = event.startDate.isDate;
-
-    // Get event duration for calculating end time
-    var duration = event.duration;
-
-    // Check if recurring
-    if (event.isRecurring()) {
-      var iter = event.iterator();
-      var maxIterations = 1000; // Safety limit
-      var count = 0;
-
-      var next;
-      while ((next = iter.next()) && count < maxIterations) {
-        count++;
-        var jsDate = next.toJSDate();
-        var occDateStr = dateStr(jsDate);
-
-        // Stop if past our range
-        if (jsDate >= dayAfterStart) break;
-
-        // Skip if before today
-        if (jsDate < todayStart) continue;
-
-        // Check for exception (modified occurrence)
-        var exceptionEvent = exceptions[uid] && exceptions[uid][next.toString()];
-        var endDate;
-        if (exceptionEvent) {
-          // Use the modified event instead
-          var exEvent = new ICAL.Event(exceptionEvent);
-          summary = exEvent.summary || summary;
-          jsDate = exEvent.startDate.toJSDate();
-          occDateStr = dateStr(jsDate);
-          isAllDay = exEvent.startDate.isDate;
-          endDate = exEvent.endDate ? exEvent.endDate.toJSDate() : jsDate;
-        } else {
-          // Calculate end time from duration
-          if (duration) {
-            endDate = new Date(jsDate.getTime() + duration.toSeconds() * 1000);
-          } else {
-            endDate = jsDate; // No duration, use start time
-          }
-        }
-
-        // Skip if event ended more than 1 hour ago (only for today's events)
-        if (occDateStr === todayStr && !isAllDay && endDate < hideCutoff) {
-          continue;
-        }
-
-        var targetList = occDateStr === todayStr ? result.today :
-                         occDateStr === tomorrowStr ? result.tomorrow : null;
-
-        if (targetList) {
-          var evt = { summary: summary, allDay: isAllDay };
-          if (badge) evt.badge = badge;
-          if (!isAllDay) evt.time = timeStr(jsDate);
-          targetList.push(evt);
-        }
-      }
-    } else {
-      // Single event
-      var jsDate = event.startDate.toJSDate();
-      var evtDateStr = dateStr(jsDate);
-
-      // Calculate end time
-      var endDate;
-      if (event.endDate) {
-        endDate = event.endDate.toJSDate();
-      } else if (duration) {
-        endDate = new Date(jsDate.getTime() + duration.toSeconds() * 1000);
-      } else {
-        endDate = jsDate;
-      }
-
-      // Skip if event ended more than 1 hour ago (only for today's events)
-      if (evtDateStr === todayStr && !isAllDay && endDate < hideCutoff) {
-        return;
-      }
-
-      var targetList = evtDateStr === todayStr ? result.today :
-                       evtDateStr === tomorrowStr ? result.tomorrow : null;
-
-      if (targetList) {
-        var evt = { summary: summary, allDay: isAllDay };
-        if (badge) evt.badge = badge;
-        if (!isAllDay) evt.time = timeStr(jsDate);
-        targetList.push(evt);
-      }
-    }
-  });
-
-  return result;
 }
 
 // Broadcast calendar to all clients
