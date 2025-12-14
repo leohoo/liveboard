@@ -82,14 +82,20 @@ function parseICS(icsData, badge, tzOffset) {
     }
   });
 
+  var processStart = Date.now();
+  var processedCount = 0;
+  var recurringCount = 0;
+
   vevents.forEach(function(vevent) {
     // Skip recurrence exceptions (handled separately)
     if (vevent.getFirstPropertyValue('recurrence-id')) return;
 
+    processedCount++;
     var event = new ICAL.Event(vevent);
     var uid = event.uid;
     var summary = event.summary || '(No title)';
     var isAllDay = event.startDate.isDate;
+    if (event.isRecurring()) recurringCount++;
 
     // Get event duration for calculating end time
     var duration = event.duration;
@@ -182,6 +188,8 @@ function parseICS(icsData, badge, tzOffset) {
       }
     }
   });
+
+  console.log('Event processing:', Date.now() - processStart, 'ms, processed:', processedCount, 'recurring:', recurringCount);
 
   return result;
 }
