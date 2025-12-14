@@ -85,6 +85,7 @@ function broadcastBrightness() {
 
 // Fetch calendar events from all configured calendars
 function fetchCalendar() {
+  console.log('Fetching calendar, clientTzOffset:', clientTzOffset);
   var calendars = settings.calendars || [];
   if (calendars.length === 0) {
     console.log('No calendars configured');
