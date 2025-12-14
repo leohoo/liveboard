@@ -57,9 +57,16 @@ var weatherData = {
 // Calendar data cache
 var calendarEvents = { today: [], tomorrow: [] };
 
-// Calculate current brightness based on schedule
+// Calculate current brightness based on schedule (using client timezone)
 function getCurrentBrightness() {
   var now = new Date();
+
+  // Convert to client timezone if available
+  if (clientTzOffset !== null) {
+    var utc = now.getTime() + now.getTimezoneOffset() * 60000;
+    now = new Date(utc - clientTzOffset * 60000);
+  }
+
   var currentTime = (now.getHours() < 10 ? '0' : '') + now.getHours() + ':' +
                     (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
 
