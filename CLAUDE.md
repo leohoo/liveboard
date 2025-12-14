@@ -17,10 +17,10 @@ LiveBoard is a real-time dashboard for repurposing old iPads (iOS 9.3.5, Safari 
 ```
 liveboard/
 ├── server/
-│   └── index.js          # Express server, SSE, weather/calendar fetching
+│   ├── index.js          # Express server, SSE, weather fetching
+│   └── calendar.js       # ICS parsing with performance optimizations
 ├── client/
 │   ├── index.html        # Dashboard page
-│   ├── admin.html        # Settings page
 │   ├── styles/main.css   # Flexbox layout with -webkit- prefixes
 │   └── scripts/app.js    # ES5 SSE client
 ├── config/
@@ -28,6 +28,8 @@ liveboard/
 │   └── settings.default.json
 ├── bin/
 │   └── liveboard-cli     # CLI for configuration
+├── test/
+│   └── calendar.test.js  # Calendar parsing tests
 └── package.json
 ```
 
@@ -52,10 +54,38 @@ liveboard/
 - `ical.js` - iCal parsing with RRULE expansion
 - `lunar-javascript` - Chinese lunar calendar
 
+## Performance Notes
+
+### Calendar Parsing (server/calendar.js)
+
+Large calendars (1000+ events) can cause CPU spikes on Raspberry Pi. Two optimizations:
+
+1. **Pre-filter past events**: Skip single events in the past and recurring events with UNTIL before today. Avoids creating expensive ICAL.Event objects.
+
+2. **Iterator start date**: Start recurring event iterator from today instead of event start date. Prevents iterating through years of past occurrences.
+
+```javascript
+// Pre-filter (cheap check on raw vevent)
+if (!rruleProp && startDate < todayStart) return; // Skip past single events
+if (rruleVal.until && untilDate < todayStart) return; // Skip ended recurrences
+
+// Iterator optimization
+var iterStart = ICAL.Time.fromJSDate(todayStart, false);
+var iter = event.iterator(iterStart); // Start from today, not event start
+```
+
+Before: 4223 events → 108 seconds, 100% CPU
+After: 4223 events → 3.7 seconds, then idle
+
+## Git Workflow
+
+- Use squash merge for PRs
+
 ## Common Commands
 
 ```bash
 npm start                           # Start server
+npm test                            # Run tests
 ./bin/liveboard-cli show            # Show settings
 ./bin/liveboard-cli calendar list   # List calendars
 ./bin/liveboard-cli reload          # Reload all clients

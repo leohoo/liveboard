@@ -65,11 +65,9 @@ function parseICS(icsData, badge, tzOffset) {
   var hideCutoff = new Date(now.getTime() - 60 * 60 * 1000);
 
   // Parse with ical.js
-  var parseStart = Date.now();
   var jcalData = ICAL.parse(icsData);
   var vcalendar = new ICAL.Component(jcalData);
   var vevents = vcalendar.getAllSubcomponents('vevent');
-  console.log('ICS parse time:', Date.now() - parseStart, 'ms, events:', vevents.length);
 
   // Track recurrence exceptions (RECURRENCE-ID events)
   var exceptions = {};
@@ -81,11 +79,6 @@ function parseICS(icsData, badge, tzOffset) {
       exceptions[uid][recurrenceId.toString()] = vevent;
     }
   });
-
-  var processStart = Date.now();
-  var processedCount = 0;
-  var recurringCount = 0;
-  var skippedCount = 0;
 
   vevents.forEach(function(vevent) {
     // Skip recurrence exceptions (handled separately)
@@ -102,7 +95,6 @@ function parseICS(icsData, badge, tzOffset) {
     // Single event (no recurrence) - skip if in the past
     if (!rruleProp) {
       if (startDate < todayStart) {
-        skippedCount++;
         return;
       }
     } else {
@@ -111,18 +103,15 @@ function parseICS(icsData, badge, tzOffset) {
       if (rruleVal && rruleVal.until) {
         var untilDate = rruleVal.until.toJSDate();
         if (untilDate < todayStart) {
-          skippedCount++;
           return; // Recurrence ended before today
         }
       }
     }
 
-    processedCount++;
     var event = new ICAL.Event(vevent);
     var uid = event.uid;
     var summary = event.summary || '(No title)';
     var isAllDay = event.startDate.isDate;
-    if (event.isRecurring()) recurringCount++;
 
     // Get event duration for calculating end time
     var duration = event.duration;
@@ -131,12 +120,7 @@ function parseICS(icsData, badge, tzOffset) {
     if (event.isRecurring()) {
       // Start iterator from today to avoid iterating through years of past events
       var iterStart = ICAL.Time.fromJSDate(todayStart, false);
-      var iterCreateStart = Date.now();
       var iter = event.iterator(iterStart);
-      var iterCreateTime = Date.now() - iterCreateStart;
-      if (iterCreateTime > 100) {
-        console.log('Slow iterator creation:', iterCreateTime, 'ms for', summary);
-      }
       var maxIterations = 100; // Safety limit (only need today + tomorrow)
       var count = 0;
 
@@ -215,8 +199,6 @@ function parseICS(icsData, badge, tzOffset) {
       }
     }
   });
-
-  console.log('Event processing:', Date.now() - processStart, 'ms, processed:', processedCount, 'recurring:', recurringCount, 'skipped:', skippedCount);
 
   return result;
 }
