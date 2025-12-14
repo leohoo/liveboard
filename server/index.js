@@ -4,6 +4,7 @@ var https = require('https');
 var fs = require('fs');
 var Lunar = require('lunar-javascript').Lunar;
 var calendar = require('./calendar');
+var timezone = require('./timezone');
 
 var app = express();
 var PORT = process.env.PORT || 3000;
@@ -59,13 +60,7 @@ var calendarEvents = { today: [], tomorrow: [] };
 
 // Calculate current brightness based on schedule (using client timezone)
 function getCurrentBrightness() {
-  var now = new Date();
-
-  // Convert to client timezone if available
-  if (clientTzOffset !== null) {
-    var utc = now.getTime() + now.getTimezoneOffset() * 60000;
-    now = new Date(utc - clientTzOffset * 60000);
-  }
+  var now = timezone.toClientTime(new Date(), clientTzOffset);
 
   var currentTime = (now.getHours() < 10 ? '0' : '') + now.getHours() + ':' +
                     (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
@@ -406,15 +401,10 @@ function sendEvent(res, event, data) {
   res.write('data: ' + JSON.stringify(data) + '\n\n');
 }
 
-// Helper: Send date update
+// Helper: Send date update (using client timezone)
 function sendDateUpdate(res) {
-  var now = new Date();
-  var days = ['日', '月', '火', '水', '木', '金', '土'];
-  var month = now.getMonth() + 1;
-  var day = now.getDate();
-  var weekday = days[now.getDay()];
-
-  var dateStr = month + '月' + day + '日 (' + weekday + ')';
+  var now = timezone.toClientTime(new Date(), clientTzOffset);
+  var dateStr = timezone.formatDateJapanese(now);
 
   // Get lunar date (simplified Chinese)
   var lunar = Lunar.fromDate(now);
