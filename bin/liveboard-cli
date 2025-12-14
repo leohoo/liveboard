@@ -1,0 +1,561 @@
+#!/usr/bin/env node
+
+var fs = require('fs');
+var path = require('path');
+var http = require('http');
+var https = require('https');
+var execSync = require('child_process').execSync;
+
+var PROJECT_DIR = path.join(__dirname, '..');
+var CONFIG_PATH = path.join(PROJECT_DIR, 'config', 'settings.json');
+var SERVER_URL = process.env.LIVEBOARD_URL || 'http://localhost:3000';
+
+var args = process.argv.slice(2);
+var command = args[0];
+
+function loadSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  } catch (e) {
+    console.error('Error loading settings:', e.message);
+    process.exit(1);
+  }
+}
+
+function saveSettings(settings) {
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(settings, null, 2));
+  console.log('Settings saved to', CONFIG_PATH);
+}
+
+function postToServer(endpoint, callback) {
+  var url = new URL(endpoint, SERVER_URL);
+  var req = http.request({
+    hostname: url.hostname,
+    port: url.port,
+    path: url.pathname,
+    method: 'POST'
+  }, function(res) {
+    var data = '';
+    res.on('data', function(chunk) { data += chunk; });
+    res.on('end', function() {
+      if (callback) callback(null, data);
+    });
+  });
+  req.on('error', function(e) {
+    if (callback) callback(e);
+  });
+  req.end();
+}
+
+function printHelp() {
+  console.log('LiveBoard CLI');
+  console.log('');
+  console.log('Usage: liveboard-cli <command> [options]');
+  console.log('');
+  console.log('Commands:');
+  console.log('  show                    Show current settings');
+  console.log('  calendar list           List all calendars');
+  console.log('  calendar add <name> <badge> <url>  Add a calendar');
+  console.log('  calendar remove <name>  Remove a calendar');
+  console.log('  calendar badge <name> <badge>  Change calendar badge');
+  console.log('  calendar info [name]    Show timezone info for calendars');
+  console.log('  set location <name>     Set weather location name');
+  console.log('  set tenki <path>        Set tenki.jp path');
+  console.log('  set day <HH:MM>         Set day mode start time');
+  console.log('  set night <HH:MM>       Set night mode start time');
+  console.log('  set day-brightness <n>  Set day brightness (10-100)');
+  console.log('  set night-brightness <n> Set night brightness (10-100)');
+  console.log('  reload                  Reload all connected dashboards');
+  console.log('  status                  Show server status');
+  console.log('  install                 Install systemd service (requires sudo)');
+  console.log('  uninstall               Remove systemd service (requires sudo)');
+  console.log('  logs                    Show service logs (follows)');
+  console.log('');
+  console.log('Examples:');
+  console.log('  liveboard-cli show');
+  console.log('  liveboard-cli calendar add Family 家 "https://calendar.google.com/..."');
+  console.log('  liveboard-cli calendar add Work 仕 "https://calendar.google.com/..."');
+  console.log('  liveboard-cli calendar remove Work');
+  console.log('  liveboard-cli set night 23:00');
+  console.log('  liveboard-cli reload');
+  console.log('  sudo liveboard-cli install');
+}
+
+function showSettings() {
+  var settings = loadSettings();
+  var calendars = settings.calendars || [];
+  console.log('Calendars:', calendars.length === 0 ? '(none)' : calendars.length + ' configured');
+  calendars.forEach(function(cal) {
+    console.log('  - ' + cal.name);
+  });
+  console.log('Weather Location:', settings.weather.location);
+  console.log('Tenki.jp Path:', settings.weather.tenkiPath);
+  console.log('Day Start:', settings.display.dayStart);
+  console.log('Night Start:', settings.display.nightStart);
+  console.log('Day Brightness:', settings.display.dayBrightness + '%');
+  console.log('Night Brightness:', settings.display.nightBrightness + '%');
+}
+
+function listCalendars() {
+  var settings = loadSettings();
+  var calendars = settings.calendars || [];
+  if (calendars.length === 0) {
+    console.log('No calendars configured.');
+    console.log('Add one with: liveboard-cli calendar add <name> <url>');
+    return;
+  }
+  console.log('Configured calendars:');
+  calendars.forEach(function(cal, i) {
+    console.log('  ' + (i + 1) + '. ' + cal.name + ' [' + (cal.badge || '?') + ']');
+    console.log('     URL: ••••••••' + cal.url.slice(-20));
+  });
+}
+
+function analyzeCalendarTimezone(name) {
+  var settings = loadSettings();
+  var calendars = settings.calendars || [];
+  var targets = name ? calendars.filter(function(c) { return c.name === name; }) : calendars;
+
+  if (targets.length === 0) {
+    console.error(name ? 'Calendar "' + name + '" not found.' : 'No calendars configured.');
+    process.exit(1);
+  }
+
+  var pending = targets.length;
+  targets.forEach(function(cal) {
+    https.get(cal.url, function(res) {
+      var icsData = '';
+      res.on('data', function(chunk) { icsData += chunk; });
+      res.on('end', function() {
+        console.log('\n=== ' + cal.name + ' [' + (cal.badge || '?') + '] ===');
+
+        // Check X-WR-TIMEZONE (calendar-level timezone)
+        var wrTz = icsData.match(/X-WR-TIMEZONE:([^\r\n]+)/);
+        console.log('Calendar timezone (X-WR-TIMEZONE): ' + (wrTz ? wrTz[1] : 'not set'));
+
+        // Check VTIMEZONE definitions
+        var vtimezones = icsData.match(/BEGIN:VTIMEZONE[\s\S]*?END:VTIMEZONE/g) || [];
+        if (vtimezones.length > 0) {
+          console.log('VTIMEZONE definitions: ' + vtimezones.length);
+          vtimezones.forEach(function(vtz) {
+            var tzid = vtz.match(/TZID:([^\r\n]+)/);
+            if (tzid) console.log('  - ' + tzid[1]);
+          });
+        }
+
+        // Analyze DTSTART formats in events
+        var formats = { utc: 0, tzid: {}, floating: 0, dateOnly: 0 };
+        var dtstartMatches = icsData.match(/DTSTART[^:]*:[^\r\n]+/g) || [];
+        dtstartMatches.forEach(function(dt) {
+          if (dt.indexOf('VALUE=DATE') > -1 && dt.match(/:\d{8}$/)) {
+            formats.dateOnly++;
+          } else if (dt.indexOf('Z') > -1) {
+            formats.utc++;
+          } else if (dt.indexOf('TZID=') > -1) {
+            var tzMatch = dt.match(/TZID=([^:;]+)/);
+            if (tzMatch) {
+              formats.tzid[tzMatch[1]] = (formats.tzid[tzMatch[1]] || 0) + 1;
+            }
+          } else {
+            formats.floating++;
+          }
+        });
+
+        console.log('\nEvent DTSTART formats (' + dtstartMatches.length + ' events):');
+        if (formats.utc > 0) console.log('  UTC (Z suffix): ' + formats.utc);
+        Object.keys(formats.tzid).forEach(function(tz) {
+          console.log('  TZID=' + tz + ': ' + formats.tzid[tz]);
+        });
+        if (formats.floating > 0) console.log('  Floating (no timezone): ' + formats.floating);
+        if (formats.dateOnly > 0) console.log('  All-day (DATE only): ' + formats.dateOnly);
+
+        pending--;
+        if (pending === 0) console.log('');
+      });
+    }).on('error', function(e) {
+      console.error('\n=== ' + cal.name + ' ===');
+      console.error('Fetch error: ' + e.message);
+      pending--;
+    });
+  });
+}
+
+function addCalendar(name, badge, url) {
+  var settings = loadSettings();
+  if (!settings.calendars) settings.calendars = [];
+
+  // Check for duplicate name
+  var existing = settings.calendars.filter(function(c) { return c.name === name; });
+  if (existing.length > 0) {
+    console.error('Error: Calendar "' + name + '" already exists.');
+    console.log('Use "calendar remove ' + name + '" first to replace it.');
+    process.exit(1);
+  }
+
+  settings.calendars.push({ name: name, badge: badge, url: url });
+  syncSettings(settings, function() {
+    console.log('Added calendar: ' + name + ' [' + badge + ']');
+  });
+}
+
+function removeCalendar(name) {
+  var settings = loadSettings();
+  if (!settings.calendars) settings.calendars = [];
+
+  var before = settings.calendars.length;
+  settings.calendars = settings.calendars.filter(function(c) { return c.name !== name; });
+
+  if (settings.calendars.length === before) {
+    console.error('Error: Calendar "' + name + '" not found.');
+    process.exit(1);
+  }
+
+  syncSettings(settings, function() {
+    console.log('Removed calendar: ' + name);
+  });
+}
+
+function changeBadge(name, badge) {
+  var settings = loadSettings();
+  if (!settings.calendars) settings.calendars = [];
+
+  var found = false;
+  settings.calendars.forEach(function(c) {
+    if (c.name === name) {
+      c.badge = badge;
+      found = true;
+    }
+  });
+
+  if (!found) {
+    console.error('Error: Calendar "' + name + '" not found.');
+    process.exit(1);
+  }
+
+  syncSettings(settings, function() {
+    console.log('Changed badge for "' + name + '" to: ' + badge);
+  });
+}
+
+function syncSettings(settings, callback) {
+  // Try to POST to server API (applies immediately)
+  var url = new URL('/api/settings', SERVER_URL);
+  var postData = JSON.stringify(settings);
+
+  var req = http.request({
+    hostname: url.hostname,
+    port: url.port,
+    path: url.pathname,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData)
+    }
+  }, function(res) {
+    if (res.statusCode === 200) {
+      callback();
+      console.log('Changes applied to running server.');
+    } else {
+      saveSettings(settings);
+      callback();
+      console.log('Server error. Saved to file. Restart server to apply.');
+    }
+  });
+
+  req.on('error', function() {
+    saveSettings(settings);
+    callback();
+    console.log('Server not running. Saved to file.');
+  });
+
+  req.write(postData);
+  req.end();
+}
+
+function showStatus() {
+  var url = new URL('/status', SERVER_URL);
+  http.get(url, function(res) {
+    var data = '';
+    res.on('data', function(chunk) { data += chunk; });
+    res.on('end', function() {
+      var status = JSON.parse(data);
+      console.log('Server:', status.status);
+      console.log('Connected clients:', status.clients);
+      console.log('Uptime:', Math.floor(status.uptime) + 's');
+    });
+  }).on('error', function(e) {
+    console.error('Server not running or unreachable:', e.message);
+  });
+}
+
+function generateServiceFile() {
+  var user = process.env.SUDO_USER || process.env.USER || 'pi';
+  var nodeCmd = process.execPath;
+
+  return [
+    '[Unit]',
+    'Description=LiveBoard Dashboard Server',
+    'After=network.target',
+    '',
+    '[Service]',
+    'Type=simple',
+    'User=' + user,
+    'WorkingDirectory=' + PROJECT_DIR,
+    'ExecStart=' + nodeCmd + ' server/index.js',
+    'Restart=always',
+    'RestartSec=5',
+    'Environment=NODE_ENV=production',
+    'Environment=PORT=3000',
+    '',
+    '[Install]',
+    'WantedBy=multi-user.target',
+    ''
+  ].join('\n');
+}
+
+function installService() {
+  if (process.getuid() !== 0) {
+    console.error('Error: install requires sudo');
+    console.log('Run: sudo liveboard-cli install');
+    process.exit(1);
+  }
+
+  var serviceFile = generateServiceFile();
+  var servicePath = '/etc/systemd/system/liveboard.service';
+
+  try {
+    console.log('Installing systemd service...');
+    console.log('  Project directory:', PROJECT_DIR);
+    console.log('  Service file:', servicePath);
+
+    fs.writeFileSync(servicePath, serviceFile);
+    console.log('  Created service file');
+
+    execSync('systemctl daemon-reload', { stdio: 'inherit' });
+    console.log('  Reloaded systemd');
+
+    execSync('systemctl enable liveboard', { stdio: 'inherit' });
+    console.log('  Enabled liveboard service');
+
+    execSync('systemctl start liveboard', { stdio: 'inherit' });
+    console.log('  Started liveboard service');
+
+    console.log('');
+    console.log('Done! LiveBoard is now running as a system service.');
+    console.log('');
+    console.log('Useful commands:');
+    console.log('  liveboard-cli status     Check server status');
+    console.log('  liveboard-cli logs       View logs');
+    console.log('  sudo systemctl restart liveboard');
+    console.log('  sudo systemctl stop liveboard');
+  } catch (e) {
+    console.error('Error installing service:', e.message);
+    process.exit(1);
+  }
+}
+
+function uninstallService() {
+  if (process.getuid() !== 0) {
+    console.error('Error: uninstall requires sudo');
+    console.log('Run: sudo liveboard-cli uninstall');
+    process.exit(1);
+  }
+
+  var servicePath = '/etc/systemd/system/liveboard.service';
+
+  try {
+    console.log('Removing systemd service...');
+
+    try {
+      execSync('systemctl stop liveboard', { stdio: 'inherit' });
+      console.log('  Stopped liveboard service');
+    } catch (e) {
+      // Service might not be running
+    }
+
+    try {
+      execSync('systemctl disable liveboard', { stdio: 'inherit' });
+      console.log('  Disabled liveboard service');
+    } catch (e) {
+      // Service might not be enabled
+    }
+
+    if (fs.existsSync(servicePath)) {
+      fs.unlinkSync(servicePath);
+      console.log('  Removed service file');
+    }
+
+    execSync('systemctl daemon-reload', { stdio: 'inherit' });
+    console.log('  Reloaded systemd');
+
+    console.log('');
+    console.log('Done! LiveBoard service has been removed.');
+  } catch (e) {
+    console.error('Error uninstalling service:', e.message);
+    process.exit(1);
+  }
+}
+
+function showLogs() {
+  try {
+    execSync('journalctl -u liveboard -f', { stdio: 'inherit' });
+  } catch (e) {
+    // User likely pressed Ctrl+C
+  }
+}
+
+function applySettingChange(key, value, settings) {
+  switch (key) {
+    case 'location':
+      settings.weather.location = value;
+      break;
+    case 'tenki':
+      settings.weather.tenkiPath = value;
+      break;
+    case 'day':
+      if (!/^\d{2}:\d{2}$/.test(value)) {
+        console.error('Invalid time format. Use HH:MM');
+        process.exit(1);
+      }
+      settings.display.dayStart = value;
+      break;
+    case 'night':
+      if (!/^\d{2}:\d{2}$/.test(value)) {
+        console.error('Invalid time format. Use HH:MM');
+        process.exit(1);
+      }
+      settings.display.nightStart = value;
+      break;
+    case 'day-brightness':
+      var dayBr = parseInt(value, 10);
+      if (isNaN(dayBr) || dayBr < 10 || dayBr > 100) {
+        console.error('Brightness must be 10-100');
+        process.exit(1);
+      }
+      settings.display.dayBrightness = dayBr;
+      break;
+    case 'night-brightness':
+      var nightBr = parseInt(value, 10);
+      if (isNaN(nightBr) || nightBr < 10 || nightBr > 100) {
+        console.error('Brightness must be 10-100');
+        process.exit(1);
+      }
+      settings.display.nightBrightness = nightBr;
+      break;
+    default:
+      console.error('Unknown setting:', key);
+      process.exit(1);
+  }
+  return settings;
+}
+
+function setSetting(key, value) {
+  var settings = loadSettings();
+  settings = applySettingChange(key, value, settings);
+
+  // Try to POST to server API (applies immediately)
+  var url = new URL('/api/settings', SERVER_URL);
+  var postData = JSON.stringify(settings);
+
+  var req = http.request({
+    hostname: url.hostname,
+    port: url.port,
+    path: url.pathname,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData)
+    }
+  }, function(res) {
+    if (res.statusCode === 200) {
+      console.log('Set', key, 'to:', key === 'calendar' ? '(hidden)' : value);
+      console.log('Changes applied to running server.');
+    } else {
+      // Server rejected, save locally
+      saveSettings(settings);
+      console.log('Set', key, 'to:', key === 'calendar' ? '(hidden)' : value);
+      console.log('Server error. Saved to file. Restart server to apply.');
+    }
+  });
+
+  req.on('error', function() {
+    // Server not running, save to file
+    saveSettings(settings);
+    console.log('Set', key, 'to:', key === 'calendar' ? '(hidden)' : value);
+    console.log('Server not running. Saved to file.');
+  });
+
+  req.write(postData);
+  req.end();
+}
+
+// Main
+if (!command || command === 'help' || command === '--help' || command === '-h') {
+  printHelp();
+} else if (command === 'show') {
+  showSettings();
+} else if (command === 'status') {
+  showStatus();
+} else if (command === 'reload') {
+  postToServer('/reload', function(err, data) {
+    if (err) {
+      console.error('Error:', err.message);
+    } else {
+      var result = JSON.parse(data);
+      console.log('Reloaded', result.reloaded, 'client(s)');
+    }
+  });
+} else if (command === 'set') {
+  var key = args[1];
+  var value = args.slice(2).join(' ');
+  if (!key || !value) {
+    console.error('Usage: liveboard-cli set <key> <value>');
+    process.exit(1);
+  }
+  setSetting(key, value);
+} else if (command === 'install') {
+  installService();
+} else if (command === 'uninstall') {
+  uninstallService();
+} else if (command === 'logs') {
+  showLogs();
+} else if (command === 'calendar') {
+  var subCmd = args[1];
+  if (subCmd === 'list' || !subCmd) {
+    listCalendars();
+  } else if (subCmd === 'add') {
+    var calName = args[2];
+    var calBadge = args[3];
+    var calUrl = args.slice(4).join(' ');
+    if (!calName || !calBadge || !calUrl) {
+      console.error('Usage: liveboard-cli calendar add <name> <badge> <url>');
+      process.exit(1);
+    }
+    addCalendar(calName, calBadge, calUrl);
+  } else if (subCmd === 'remove' || subCmd === 'rm') {
+    var rmName = args[2];
+    if (!rmName) {
+      console.error('Usage: liveboard-cli calendar remove <name>');
+      process.exit(1);
+    }
+    removeCalendar(rmName);
+  } else if (subCmd === 'badge') {
+    var badgeName = args[2];
+    var newBadge = args[3];
+    if (!badgeName || !newBadge) {
+      console.error('Usage: liveboard-cli calendar badge <name> <badge>');
+      process.exit(1);
+    }
+    changeBadge(badgeName, newBadge);
+  } else if (subCmd === 'info') {
+    analyzeCalendarTimezone(args[2]);
+  } else {
+    console.error('Unknown calendar command:', subCmd);
+    console.log('Use: calendar list, calendar add, calendar remove, calendar badge, calendar info');
+    process.exit(1);
+  }
+} else {
+  console.error('Unknown command:', command);
+  console.log('Run "liveboard-cli help" for usage');
+  process.exit(1);
+}

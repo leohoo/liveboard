@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LiveBoard Setup</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      padding: 20px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin-bottom: 24px;
+      font-size: 24px;
+      color: #fff;
+    }
+
+    h2 {
+      margin: 24px 0 16px 0;
+      font-size: 18px;
+      color: #aaa;
+      border-bottom: 1px solid #333;
+      padding-bottom: 8px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+      color: #888;
+    }
+
+    input[type="text"],
+    input[type="time"],
+    input[type="number"] {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #333;
+      border-radius: 6px;
+      background: #16213e;
+      color: #fff;
+      font-size: 16px;
+    }
+
+    input[type="text"]:focus,
+    input[type="time"]:focus,
+    input[type="number"]:focus {
+      outline: none;
+      border-color: #0f4c75;
+    }
+
+    .row {
+      display: -webkit-flex;
+      display: flex;
+      gap: 16px;
+    }
+
+    .row .form-group {
+      -webkit-flex: 1;
+      flex: 1;
+    }
+
+    button {
+      padding: 14px 28px;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-right: 12px;
+      margin-top: 8px;
+    }
+
+    .btn-primary {
+      background: #0f4c75;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #1a5d8a;
+    }
+
+    .btn-secondary {
+      background: #333;
+      color: #fff;
+    }
+
+    .btn-secondary:hover {
+      background: #444;
+    }
+
+    .btn-danger {
+      background: #8b0000;
+      color: #fff;
+    }
+
+    .btn-danger:hover {
+      background: #a00;
+    }
+
+    .status {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 6px;
+      display: none;
+    }
+
+    .status.success {
+      display: block;
+      background: #1a4d1a;
+      color: #6f6;
+    }
+
+    .status.error {
+      display: block;
+      background: #4d1a1a;
+      color: #f66;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    .actions {
+      margin-top: 32px;
+      padding-top: 16px;
+      border-top: 1px solid #333;
+    }
+
+    .dashboard-link {
+      display: inline-block;
+      margin-top: 24px;
+      color: #5af;
+      text-decoration: none;
+    }
+
+    .dashboard-link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>LiveBoard Setup</h1>
+
+  <form id="settingsForm">
+    <h2>Calendar</h2>
+    <div class="form-group">
+      <label for="calendarUrl">Google Calendar ICS URL</label>
+      <input type="text" id="calendarUrl" placeholder="https://calendar.google.com/calendar/ical/...">
+      <div class="hint">Private ICS URL from Google Calendar settings</div>
+    </div>
+
+    <h2>Weather</h2>
+    <div class="form-group">
+      <label for="weatherLocation">Location Name</label>
+      <input type="text" id="weatherLocation" placeholder="e.g. Minato-ku">
+    </div>
+    <div class="form-group">
+      <label for="tenkiPath">tenki.jp Path</label>
+      <input type="text" id="tenkiPath" placeholder="/forecast/3/16/4410/13101/">
+      <div class="hint">Path from tenki.jp URL for your location</div>
+    </div>
+
+    <h2>Display Schedule</h2>
+    <div class="row">
+      <div class="form-group">
+        <label for="dayStart">Day Mode Start</label>
+        <input type="time" id="dayStart" value="07:00">
+      </div>
+      <div class="form-group">
+        <label for="nightStart">Night Mode Start</label>
+        <input type="time" id="nightStart" value="22:00">
+      </div>
+    </div>
+    <div class="row">
+      <div class="form-group">
+        <label for="dayBrightness">Day Brightness (%)</label>
+        <input type="number" id="dayBrightness" min="10" max="100" value="100">
+      </div>
+      <div class="form-group">
+        <label for="nightBrightness">Night Brightness (%)</label>
+        <input type="number" id="nightBrightness" min="10" max="100" value="30">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="submit" class="btn-primary">Save Settings</button>
+      <button type="button" class="btn-secondary" id="reloadBtn">Reload Dashboard</button>
+    </div>
+
+    <div id="status" class="status"></div>
+  </form>
+
+  <a href="/" class="dashboard-link">Back to Dashboard</a>
+
+  <script>
+    (function() {
+      var form = document.getElementById('settingsForm');
+      var statusEl = document.getElementById('status');
+      var reloadBtn = document.getElementById('reloadBtn');
+
+      // Load current settings
+      function loadSettings() {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/settings/full', true);
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === 4 && xhr.status === 200) {
+            var settings = JSON.parse(xhr.responseText);
+            document.getElementById('calendarUrl').value = settings.calendar.url || '';
+            document.getElementById('weatherLocation').value = settings.weather.location || '';
+            document.getElementById('tenkiPath').value = settings.weather.tenkiPath || '';
+            document.getElementById('dayStart').value = settings.display.dayStart || '07:00';
+            document.getElementById('nightStart').value = settings.display.nightStart || '22:00';
+            document.getElementById('dayBrightness').value = settings.display.dayBrightness || 100;
+            document.getElementById('nightBrightness').value = settings.display.nightBrightness || 30;
+          }
+        };
+        xhr.send();
+      }
+
+      // Save settings
+      form.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        var settings = {
+          calendar: {
+            url: document.getElementById('calendarUrl').value
+          },
+          weather: {
+            location: document.getElementById('weatherLocation').value,
+            tenkiPath: document.getElementById('tenkiPath').value
+          },
+          display: {
+            dayStart: document.getElementById('dayStart').value,
+            nightStart: document.getElementById('nightStart').value,
+            dayBrightness: parseInt(document.getElementById('dayBrightness').value, 10),
+            nightBrightness: parseInt(document.getElementById('nightBrightness').value, 10)
+          }
+        };
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/settings', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === 4) {
+            if (xhr.status === 200) {
+              showStatus('Settings saved successfully!', 'success');
+            } else {
+              showStatus('Error saving settings: ' + xhr.responseText, 'error');
+            }
+          }
+        };
+        xhr.send(JSON.stringify(settings));
+      });
+
+      // Reload dashboard
+      reloadBtn.addEventListener('click', function() {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/reload', true);
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === 4) {
+            if (xhr.status === 200) {
+              var result = JSON.parse(xhr.responseText);
+              showStatus('Reloaded ' + result.reloaded + ' client(s)', 'success');
+            } else {
+              showStatus('Error reloading', 'error');
+            }
+          }
+        };
+        xhr.send();
+      });
+
+      function showStatus(message, type) {
+        statusEl.textContent = message;
+        statusEl.className = 'status ' + type;
+        setTimeout(function() {
+          statusEl.className = 'status';
+        }, 3000);
+      }
+
+      // Load settings on page load
+      loadSettings();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "calendars": [],
+  "weather": {
+    "location": "東京",
+    "tenkiPath": "/forecast/3/16/4410/13101/"
+  },
+  "display": {
+    "dayBrightness": 100,
+    "nightBrightness": 30,
+    "dayStart": "07:00",
+    "nightStart": "22:00"
+  }
+}

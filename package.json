@@ -1,0 +1,17 @@
+{
+  "name": "liveboard",
+  "version": "0.1.0",
+  "description": "Server-side controlled web dashboard for iPad 2 display",
+  "main": "server/index.js",
+  "bin": {
+    "liveboard-cli": "./bin/liveboard-cli"
+  },
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ical.js": "^2.2.1",
+    "lunar-javascript": "^1.7.7"
+  }
+}

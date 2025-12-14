@@ -1,0 +1,263 @@
+/* Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, Helvetica, Arial, sans-serif;
+  background: #1a1a2e;
+  color: #eee;
+}
+
+/* Dashboard container */
+#dashboard {
+  width: 100%;
+  height: 100%;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  -webkit-box-pack: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+}
+
+/* Widgets container */
+#widgets {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-box-pack: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  width: 100%;
+  padding: 20px;
+}
+
+/* Widget base */
+.widget {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 30px;
+  margin: 15px;
+  text-align: center;
+  min-width: 200px;
+}
+
+/* Text widget */
+.widget-text .widget-value {
+  font-size: 72px;
+  font-weight: 200;
+  letter-spacing: 2px;
+}
+
+.widget-text .widget-title {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  opacity: 0.6;
+  margin-top: 10px;
+}
+
+/* Date widget */
+.widget-date .widget-value {
+  font-size: 48px;
+  font-weight: 300;
+}
+
+.widget-date .widget-lunar {
+  font-size: 24px;
+  opacity: 0.6;
+  margin-top: 10px;
+}
+
+/* Weather widget */
+.widget-weather {
+  min-width: 280px;
+}
+
+.widget-weather .weather-location {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  opacity: 0.6;
+  margin-bottom: 10px;
+}
+
+.widget-weather .weather-temp {
+  font-size: 64px;
+  font-weight: 200;
+}
+
+.widget-weather .weather-temp:after {
+  content: '°C';
+  font-size: 32px;
+  opacity: 0.7;
+  vertical-align: super;
+}
+
+.widget-weather .weather-condition {
+  font-size: 18px;
+  margin: 10px 0;
+  opacity: 0.9;
+}
+
+.widget-weather .weather-highlow {
+  font-size: 16px;
+  opacity: 0.6;
+}
+
+.widget-weather .weather-high {
+  color: #ff8a65;
+}
+
+.widget-weather .weather-low {
+  color: #64b5f6;
+  margin-left: 15px;
+}
+
+.widget-weather .weather-tomorrow {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.widget-weather .weather-tomorrow-label {
+  font-size: 12px;
+  opacity: 0.5;
+  margin-bottom: 5px;
+}
+
+.widget-weather .weather-tomorrow-info {
+  font-size: 16px;
+}
+
+.widget-weather .weather-tomorrow-condition {
+  opacity: 0.8;
+}
+
+/* Message widget */
+.widget-message {
+  min-width: 300px;
+  background: rgba(100, 181, 246, 0.2);
+}
+
+.widget-message .message-text {
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1.4;
+}
+
+/* Calendar widget */
+.widget-calendar {
+  min-width: 450px;
+  text-align: left;
+}
+
+.widget-calendar .calendar-title {
+  font-size: 28px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  opacity: 0.6;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.widget-calendar .calendar-events {
+  list-style: none;
+}
+
+.widget-calendar .calendar-event {
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.widget-calendar .calendar-event:last-child {
+  border-bottom: none;
+}
+
+.widget-calendar .event-time {
+  font-size: 32px;
+  opacity: 0.6;
+  min-width: 90px;
+  display: inline-block;
+}
+
+.widget-calendar .event-summary {
+  font-size: 36px;
+}
+
+.widget-calendar .event-badge {
+  font-size: 32px;
+  margin-left: 12px;
+}
+
+.widget-calendar .calendar-empty {
+  text-align: center;
+  opacity: 0.5;
+  font-style: italic;
+  font-size: 28px;
+}
+
+.widget-calendar .calendar-section {
+  margin-bottom: 15px;
+}
+
+.widget-calendar .calendar-section:last-child {
+  margin-bottom: 0;
+}
+
+.widget-calendar .calendar-tomorrow {
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Connection status */
+#status {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  -webkit-transform: translateX(-50%);
+  transform: translateX(-50%);
+  font-size: 12px;
+  opacity: 0.4;
+  transition: opacity 0.3s;
+}
+
+#status.error {
+  color: #ff6b6b;
+  opacity: 1;
+}
+
+#status.connected {
+  opacity: 0;
+}
+
+/* Brightness overlay for dimming */
+#brightness-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  -webkit-transition: opacity 0.5s ease;
+  transition: opacity 0.5s ease;
+}
