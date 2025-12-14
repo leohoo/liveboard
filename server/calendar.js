@@ -85,10 +85,37 @@ function parseICS(icsData, badge, tzOffset) {
   var processStart = Date.now();
   var processedCount = 0;
   var recurringCount = 0;
+  var skippedCount = 0;
 
   vevents.forEach(function(vevent) {
     // Skip recurrence exceptions (handled separately)
     if (vevent.getFirstPropertyValue('recurrence-id')) return;
+
+    // Pre-filter: check if event could possibly occur today/tomorrow
+    var dtstart = vevent.getFirstPropertyValue('dtstart');
+    var rruleProp = vevent.getFirstProperty('rrule');
+
+    if (!dtstart) return; // Invalid event
+
+    var startDate = dtstart.toJSDate();
+
+    // Single event (no recurrence) - skip if in the past
+    if (!rruleProp) {
+      if (startDate < todayStart) {
+        skippedCount++;
+        return;
+      }
+    } else {
+      // Recurring event - check if recurrence ended before today
+      var rruleVal = rruleProp.getFirstValue();
+      if (rruleVal && rruleVal.until) {
+        var untilDate = rruleVal.until.toJSDate();
+        if (untilDate < todayStart) {
+          skippedCount++;
+          return; // Recurrence ended before today
+        }
+      }
+    }
 
     processedCount++;
     var event = new ICAL.Event(vevent);
@@ -189,7 +216,7 @@ function parseICS(icsData, badge, tzOffset) {
     }
   });
 
-  console.log('Event processing:', Date.now() - processStart, 'ms, processed:', processedCount, 'recurring:', recurringCount);
+  console.log('Event processing:', Date.now() - processStart, 'ms, processed:', processedCount, 'recurring:', recurringCount, 'skipped:', skippedCount);
 
   return result;
 }
