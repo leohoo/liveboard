@@ -65,9 +65,11 @@ function parseICS(icsData, badge, tzOffset) {
   var hideCutoff = new Date(now.getTime() - 60 * 60 * 1000);
 
   // Parse with ical.js
+  var parseStart = Date.now();
   var jcalData = ICAL.parse(icsData);
   var vcalendar = new ICAL.Component(jcalData);
   var vevents = vcalendar.getAllSubcomponents('vevent');
+  console.log('ICS parse time:', Date.now() - parseStart, 'ms, events:', vevents.length);
 
   // Track recurrence exceptions (RECURRENCE-ID events)
   var exceptions = {};
@@ -96,7 +98,12 @@ function parseICS(icsData, badge, tzOffset) {
     if (event.isRecurring()) {
       // Start iterator from today to avoid iterating through years of past events
       var iterStart = ICAL.Time.fromJSDate(todayStart, false);
+      var iterCreateStart = Date.now();
       var iter = event.iterator(iterStart);
+      var iterCreateTime = Date.now() - iterCreateStart;
+      if (iterCreateTime > 100) {
+        console.log('Slow iterator creation:', iterCreateTime, 'ms for', summary);
+      }
       var maxIterations = 100; // Safety limit (only need today + tomorrow)
       var count = 0;
 
