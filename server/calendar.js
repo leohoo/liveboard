@@ -118,20 +118,24 @@ function parseICS(icsData, badge, tzOffset) {
 
     // Check if recurring
     if (event.isRecurring()) {
-      // Start iterator from today to avoid iterating through years of past events
-      var iterStart = ICAL.Time.fromJSDate(todayStart, false);
-      var iter = event.iterator(iterStart);
-      var maxIterations = 100; // Safety limit (only need today + tomorrow)
+      // Don't pass start time - let iterator start from DTSTART
+      // This preserves event times correctly
+      var iter = event.iterator();
+      var maxIterations = 10000; // Safety limit for infinite recurrence
       var count = 0;
 
       var next;
       while ((next = iter.next()) && count < maxIterations) {
         count++;
         var jsDate = next.toJSDate();
-        var occDateStr = dateStr(jsDate);
 
-        // Stop if past our range
+        // Skip past occurrences quickly (before today)
+        if (jsDate < todayStart) continue;
+
+        // Stop if past our range (after tomorrow)
         if (jsDate >= dayAfterStart) break;
+
+        var occDateStr = dateStr(jsDate);
 
         // Check for exception (modified occurrence)
         var exceptionEvent = exceptions[uid] && exceptions[uid][next.toString()];
