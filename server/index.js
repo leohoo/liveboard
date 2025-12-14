@@ -422,8 +422,8 @@ app.get('/events', function(req, res) {
   if (tz !== undefined && clientTzOffset === null) {
     clientTzOffset = parseInt(tz, 10);
     console.log('Client timezone offset:', clientTzOffset, 'minutes (UTC' + (clientTzOffset <= 0 ? '+' : '-') + Math.abs(clientTzOffset / 60) + ')');
-    // Refetch calendar with correct timezone
-    fetchCalendar();
+    // Start calendar fetching now that we have timezone
+    startCalendarFetching();
   }
 
   // Add client to list
@@ -606,9 +606,13 @@ setInterval(broadcastBrightness, 60000);
 fetchWeather();
 setInterval(fetchWeather, 10 * 60 * 1000);
 
-// Fetch calendar every 5 minutes
-fetchCalendar();
-setInterval(fetchCalendar, 5 * 60 * 1000);
+// Fetch calendar every 5 minutes (wait for first client to get timezone)
+var calendarInterval = null;
+function startCalendarFetching() {
+  if (calendarInterval) return; // Already started
+  fetchCalendar();
+  calendarInterval = setInterval(fetchCalendar, 5 * 60 * 1000);
+}
 
 app.listen(PORT, function() {
   console.log('LiveBoard server running on http://localhost:' + PORT);
