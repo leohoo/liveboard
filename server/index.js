@@ -5,6 +5,7 @@ var fs = require('fs');
 var Lunar = require('lunar-javascript').Lunar;
 var calendar = require('./calendar');
 var timezone = require('./timezone');
+var weather = require('./weather');
 
 var app = express();
 var PORT = process.env.PORT || 3000;
@@ -174,50 +175,30 @@ function broadcastCalendar() {
 
 // Fetch weather from tenki.jp
 function fetchWeather() {
-  var options = {
-    hostname: 'tenki.jp',
-    path: settings.weather.tenkiPath,
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+  var tenkiPath = settings.weather.tenkiPath;
+
+  weather.fetchForecast(tenkiPath, function(data) {
+    if (data) {
+      if (data.high) weatherData.high = data.high;
+      if (data.low) weatherData.low = data.low;
+      if (data.condition) weatherData.condition = data.condition;
+      if (data.tomorrowHigh) weatherData.tomorrowHigh = data.tomorrowHigh;
+      if (data.tomorrowLow) weatherData.tomorrowLow = data.tomorrowLow;
+      if (data.tomorrowCondition) weatherData.tomorrowCondition = data.tomorrowCondition;
     }
-  };
 
-  https.get(options, function(res) {
-    var html = '';
-    res.on('data', function(chunk) { html += chunk; });
-    res.on('end', function() {
-      try {
-        // Extract today's high/low (more flexible whitespace)
-        var highMatch = html.match(/<dd class="high-temp temp">\s*<span class="value">([0-9-]+)<\/span>/);
-        var lowMatch = html.match(/<dd class="low-temp temp">\s*<span class="value">([0-9-]+)<\/span>/);
-        if (highMatch) weatherData.high = highMatch[1];
-        if (lowMatch) weatherData.low = lowMatch[1];
-
-        // Use high temp as current temp (current observation may not always be available)
-        if (highMatch) weatherData.temp = highMatch[1];
-
-        // Extract weather condition
-        var conditionMatch = html.match(/weather-telop">([^<]+)/);
-        if (conditionMatch) {
-          weatherData.condition = conditionMatch[1].trim();
-        }
-
-        // Extract tomorrow's weather from JavaScript data
-        var tomorrowHighMatch = html.match(/"tomorrow_max_temp":"([0-9-]+)"/);
-        var tomorrowLowMatch = html.match(/"tomorrow_min_temp":"([0-9-]+)"/);
-        var tomorrowCondMatch = html.match(/"tomorrow_map_telop_forecast_telop":"([^"]+)"/);
-        if (tomorrowHighMatch) weatherData.tomorrowHigh = tomorrowHighMatch[1];
-        if (tomorrowLowMatch) weatherData.tomorrowLow = tomorrowLowMatch[1];
-        if (tomorrowCondMatch) weatherData.tomorrowCondition = tomorrowCondMatch[1];
-
-        console.log('Weather updated:', weatherData);
-        broadcastWeather();
-      } catch (e) {
-        console.error('Weather parse error:', e);
+    // Fetch hourly temperature for current temp
+    weather.fetchHourlyTemp(tenkiPath, function(currentTemp) {
+      if (currentTemp !== null) {
+        weatherData.temp = String(currentTemp);
+      } else if (data && data.high) {
+        // Fallback to high temp if hourly fetch fails
+        weatherData.temp = data.high;
       }
+
+      console.log('Weather updated:', weatherData);
+      broadcastWeather();
     });
-  }).on('error', function(e) {
-    console.error('Weather fetch error:', e);
   });
 }
 

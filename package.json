@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node server/index.js",
-    "test": "node test/calendar.test.js && node test/timezone.test.js"
+    "test": "node test/calendar.test.js && node test/timezone.test.js && node test/weather.test.js"
   },
   "dependencies": {
     "express": "^4.18.2",

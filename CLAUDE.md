@@ -17,8 +17,10 @@ LiveBoard is a real-time dashboard for repurposing old iPads (iOS 9.3.5, Safari 
 ```
 liveboard/
 ├── server/
-│   ├── index.js          # Express server, SSE, weather fetching
-│   └── calendar.js       # ICS parsing with performance optimizations
+│   ├── index.js          # Express server, SSE endpoints
+│   ├── calendar.js       # ICS parsing with performance optimizations
+│   ├── weather.js        # Weather fetching from tenki.jp
+│   └── timezone.js       # Timezone conversion utilities
 ├── client/
 │   ├── index.html        # Dashboard page
 │   ├── styles/main.css   # Flexbox layout with -webkit- prefixes
@@ -29,7 +31,9 @@ liveboard/
 ├── bin/
 │   └── liveboard-cli     # CLI for configuration
 ├── test/
-│   └── calendar.test.js  # Calendar parsing tests
+│   ├── calendar.test.js  # Calendar parsing tests
+│   ├── timezone.test.js  # Timezone conversion tests
+│   └── weather.test.js   # Weather module tests
 └── package.json
 ```
 
@@ -80,6 +84,23 @@ while ((next = iter.next()) && count < maxIterations) {
 
 Before: 4223 events → 108 seconds, 100% CPU
 After: 4223 events → ~4 seconds, then idle
+
+### Weather Fetching (server/weather.js)
+
+Fetches weather data from tenki.jp (Japanese weather service, JST-based).
+
+- **fetchForecast()**: Main forecast page - high/low temps, conditions
+- **fetchHourlyTemp()**: 1-hour forecast page - current hour temperature
+
+Hour label mapping for hourly data:
+- Labels represent periods ENDING at that hour (e.g., "11" = 10:00-11:00)
+- Array index = current hour (simple direct mapping)
+- Uses JST time regardless of server timezone
+
+```javascript
+// tenki.jp 1hour.html: temperatureData[0] = column "01" (00:00-01:00)
+var index = currentHour;  // Hour 10 (10:00-11:00) → index 10 → column "11"
+```
 
 ## Git Workflow
 
