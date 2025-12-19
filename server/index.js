@@ -133,15 +133,26 @@ function fetchCalendar() {
 
 // Finish calendar update - dedupe, sort, broadcast
 function finishCalendarUpdate(allEvents) {
-  // Deduplicate
+  // Deduplicate and merge badges from different calendars
   var dedupe = function(events) {
     var seen = {};
-    return events.filter(function(evt) {
-      var key = (evt.time || 'allday') + '|' + evt.summary + '|' + (evt.badge || '');
-      if (seen[key]) return false;
-      seen[key] = true;
-      return true;
+    var result = [];
+    events.forEach(function(evt) {
+      var key = (evt.time || 'allday') + '|' + evt.summary;
+      if (seen[key]) {
+        // Merge badge if not already included
+        if (evt.badge && seen[key].badge.indexOf(evt.badge) === -1) {
+          seen[key].badge = seen[key].badge + '·' + evt.badge;
+        }
+      } else {
+        var merged = { summary: evt.summary, allDay: evt.allDay };
+        if (evt.time) merged.time = evt.time;
+        merged.badge = evt.badge || '';
+        seen[key] = merged;
+        result.push(merged);
+      }
     });
+    return result;
   };
   allEvents.today = dedupe(allEvents.today);
   allEvents.tomorrow = dedupe(allEvents.tomorrow);

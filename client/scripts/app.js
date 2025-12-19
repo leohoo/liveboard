@@ -367,6 +367,7 @@
     dimTimer = setTimeout(function() {
       isBoosted = false;
       applyBrightness();
+      window.scrollTo(0, 0);
     }, dimTimeout);
   }
 
