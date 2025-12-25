@@ -81,8 +81,7 @@ function parseICS(icsData, badge, tzOffset) {
   });
 
   vevents.forEach(function(vevent) {
-    // Skip recurrence exceptions (handled separately)
-    if (vevent.getFirstPropertyValue('recurrence-id')) return;
+    var recurrenceId = vevent.getFirstPropertyValue('recurrence-id');
 
     // Pre-filter: check if event could possibly occur today/tomorrow
     var dtstart = vevent.getFirstPropertyValue('dtstart');
@@ -91,6 +90,38 @@ function parseICS(icsData, badge, tzOffset) {
     if (!dtstart) return; // Invalid event
 
     var startDate = dtstart.toJSDate();
+
+    // For recurrence exceptions (rescheduled occurrences), treat as single event
+    // This handles cases where an occurrence was moved to a date outside the original RRULE
+    if (recurrenceId) {
+      // Check if this rescheduled event falls on today or tomorrow
+      var evtDateStr = dateStr(startDate);
+      var isAllDay = dtstart.isDate;
+
+      // Skip if in the past
+      if (startDate < todayStart) return;
+
+      var targetList = evtDateStr === todayStr ? result.today :
+                       evtDateStr === tomorrowStr ? result.tomorrow : null;
+
+      if (targetList) {
+        var summary = vevent.getFirstPropertyValue('summary') || '(No title)';
+        var evt = { summary: summary, allDay: isAllDay };
+
+        // Calculate end time for hide cutoff check
+        var dtend = vevent.getFirstPropertyValue('dtend');
+        var endDate = dtend ? dtend.toJSDate() : startDate;
+
+        // Skip if event ended more than 1 hour ago (only for today's events)
+        if (evtDateStr === todayStr && !isAllDay && endDate < hideCutoff) {
+          return;
+        }
+
+        if (!isAllDay) evt.time = timeStr(startDate);
+        targetList.push(evt);
+      }
+      return;
+    }
 
     // Single event (no recurrence) - skip if in the past
     if (!rruleProp) {
