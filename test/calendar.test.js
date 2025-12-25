@@ -80,4 +80,84 @@ if (anyEvent && anyEvent.badge === 'test') {
 }
 
 console.log('\n' + (passed ? 'All tests passed!' : 'Some tests failed!'));
+
+// Test 2: Rescheduled recurrence exception
+console.log('\n=== Rescheduled Recurrence Exception Test ===\n');
+
+// Create a recurring event that ended yesterday, but with an exception rescheduled to today
+function createRescheduledExceptionICS() {
+  var today = new Date();
+  var yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  var twoDaysAgo = new Date(today);
+  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+
+  function formatDate(d) {
+    return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  }
+
+  function formatDateLocal(d) {
+    var year = d.getFullYear();
+    var month = (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
+    var day = (d.getDate() < 10 ? '0' : '') + d.getDate();
+    return year + month + day + 'T160000';
+  }
+
+  var startDate = formatDateLocal(twoDaysAgo);
+  var untilDate = formatDate(yesterday);
+  var originalOccurrence = formatDateLocal(yesterday);
+  var rescheduledDate = formatDateLocal(today);
+
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'BEGIN:VEVENT',
+    'UID:test-recurring-with-exception',
+    'DTSTART;TZID=Asia/Tokyo:' + startDate,
+    'DTEND;TZID=Asia/Tokyo:' + startDate.replace('160000', '163000'),
+    'RRULE:FREQ=DAILY;UNTIL=' + untilDate,
+    'SUMMARY:Original Meeting',
+    'END:VEVENT',
+    'BEGIN:VEVENT',
+    'UID:test-recurring-with-exception',
+    'RECURRENCE-ID;TZID=Asia/Tokyo:' + originalOccurrence,
+    'DTSTART;TZID=Asia/Tokyo:' + rescheduledDate,
+    'DTEND;TZID=Asia/Tokyo:' + rescheduledDate.replace('160000', '163000'),
+    'SUMMARY:Rescheduled Meeting',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+}
+
+var exceptionICS = createRescheduledExceptionICS();
+var exceptionResult = calendar.parseICS(exceptionICS, 'test', -540);
+
+console.log('Test: Recurrence ended yesterday, but one occurrence rescheduled to today\n');
+console.log('Results:');
+console.log('  Events found today:', exceptionResult.today.length);
+exceptionResult.today.forEach(function(e) {
+  console.log('    -', e.time || 'allday', e.summary);
+});
+
+console.log('\n=== Assertions ===\n');
+
+var rescheduledEvent = exceptionResult.today.find(function(e) {
+  return e.summary === 'Rescheduled Meeting';
+});
+
+if (rescheduledEvent) {
+  console.log('PASS: Rescheduled exception event found');
+} else {
+  console.log('FAIL: Rescheduled exception event should appear in today\'s events');
+  passed = false;
+}
+
+if (rescheduledEvent && rescheduledEvent.time === '16:00') {
+  console.log('PASS: Event time is correct (16:00)');
+} else {
+  console.log('FAIL: Event time should be 16:00, got:', rescheduledEvent ? rescheduledEvent.time : 'N/A');
+  passed = false;
+}
+
+console.log('\n' + (passed ? 'All tests passed!' : 'Some tests failed!'));
 process.exit(passed ? 0 : 1);
