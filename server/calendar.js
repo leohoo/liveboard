@@ -117,6 +117,7 @@ function parseICS(icsData, badge, tzOffset) {
           return;
         }
 
+        if (badge) evt.badge = badge;
         if (!isAllDay) evt.time = timeStr(startDate);
         targetList.push(evt);
       }
