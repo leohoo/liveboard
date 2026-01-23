@@ -81,9 +81,16 @@ function getCurrentBrightness() {
 // Broadcast brightness to all clients
 function broadcastBrightness() {
   var brightness = getCurrentBrightness();
+  var deadClients = [];
   clients.forEach(function(client) {
-    sendEvent(client.res, 'display', { brightness: brightness });
+    if (!sendEvent(client.res, 'display', { brightness: brightness })) {
+      deadClients.push(client.id);
+    }
   });
+  if (deadClients.length > 0) {
+    clients = clients.filter(function(c) { return deadClients.indexOf(c.id) === -1; });
+    console.log('Removed', deadClients.length, 'dead client(s) - Total clients:', clients.length);
+  }
 }
 
 // Fetch calendar events from all configured calendars
@@ -179,9 +186,16 @@ function broadcastCalendar() {
     today: calendarEvents.today,
     tomorrow: calendarEvents.tomorrow
   };
+  var deadClients = [];
   clients.forEach(function(client) {
-    sendEvent(client.res, 'update', update);
+    if (!sendEvent(client.res, 'update', update)) {
+      deadClients.push(client.id);
+    }
   });
+  if (deadClients.length > 0) {
+    clients = clients.filter(function(c) { return deadClients.indexOf(c.id) === -1; });
+    console.log('Removed', deadClients.length, 'dead client(s) - Total clients:', clients.length);
+  }
 }
 
 // Fetch weather from tenki.jp
@@ -226,9 +240,16 @@ function broadcastWeather() {
     tomorrowCondition: weatherData.tomorrowCondition,
     location: weatherData.location
   };
+  var deadClients = [];
   clients.forEach(function(client) {
-    sendEvent(client.res, 'update', update);
+    if (!sendEvent(client.res, 'update', update)) {
+      deadClients.push(client.id);
+    }
   });
+  if (deadClients.length > 0) {
+    clients = clients.filter(function(c) { return deadClients.indexOf(c.id) === -1; });
+    console.log('Removed', deadClients.length, 'dead client(s) - Total clients:', clients.length);
+  }
 }
 
 // SSE endpoint
@@ -237,6 +258,7 @@ app.get('/events', function(req, res) {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.flushHeaders();
 
@@ -307,7 +329,13 @@ app.get('/events', function(req, res) {
 
   // Keepalive every 15 seconds (Safari timeout prevention)
   var keepaliveInterval = setInterval(function() {
-    res.write(':keepalive\n\n');
+    try {
+      sendEvent(res, 'keepalive', { timestamp: Date.now() });
+    } catch (e) {
+      console.error('Keepalive error for client', clientId, ':', e.message);
+      clearInterval(keepaliveInterval);
+      clients = clients.filter(function(c) { return c.id !== clientId; });
+    }
   }, 15000);
 
   // Clean up on disconnect
@@ -329,10 +357,19 @@ app.get('/status', function(req, res) {
 
 // Force all clients to reload
 app.post('/reload', function(req, res) {
+  var reloaded = 0;
+  var deadClients = [];
   clients.forEach(function(client) {
-    sendEvent(client.res, 'reload', {});
+    if (sendEvent(client.res, 'reload', {})) {
+      reloaded++;
+    } else {
+      deadClients.push(client.id);
+    }
   });
-  res.json({ reloaded: clients.length });
+  if (deadClients.length > 0) {
+    clients = clients.filter(function(c) { return deadClients.indexOf(c.id) === -1; });
+  }
+  res.json({ reloaded: reloaded, failed: deadClients.length });
 });
 
 // Get settings (hide sensitive calendar URLs partially)
@@ -387,10 +424,15 @@ app.post('/api/settings', function(req, res) {
   }
 });
 
-// Helper: Send SSE event
+// Helper: Send SSE event (returns false on error)
 function sendEvent(res, event, data) {
-  res.write('event: ' + event + '\n');
-  res.write('data: ' + JSON.stringify(data) + '\n\n');
+  try {
+    res.write('event: ' + event + '\n');
+    res.write('data: ' + JSON.stringify(data) + '\n\n');
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 // Helper: Send date update (using client timezone)
@@ -412,9 +454,18 @@ function sendDateUpdate(res) {
 
 // Broadcast date to all clients every minute
 setInterval(function() {
+  var deadClients = [];
   clients.forEach(function(client) {
-    sendDateUpdate(client.res);
+    try {
+      sendDateUpdate(client.res);
+    } catch (e) {
+      deadClients.push(client.id);
+    }
   });
+  if (deadClients.length > 0) {
+    clients = clients.filter(function(c) { return deadClients.indexOf(c.id) === -1; });
+    console.log('Removed', deadClients.length, 'dead client(s) from date update - Total clients:', clients.length);
+  }
 }, 60000);
 
 // Check brightness every minute (day/night transitions)
