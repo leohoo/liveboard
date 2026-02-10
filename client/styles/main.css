@@ -257,9 +257,12 @@ html, body {
   right: 0;
   bottom: 0;
   left: 0;
+  width: 100vw;
+  height: 100vh;
   background: #000;
   opacity: 0;
   pointer-events: none;
+  z-index: 9999;
   -webkit-transition: opacity 0.5s ease;
   transition: opacity 0.5s ease;
 }
