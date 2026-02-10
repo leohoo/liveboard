@@ -10,6 +10,9 @@
   var reconnectAttempts = 0;
   var maxReconnectDelay = 30000;
   var widgets = {};
+  var lastEventTime = Date.now();
+  var healthCheckInterval = null;
+  var CONNECTION_TIMEOUT = 45000; // 45 seconds (3x keepalive interval)
 
   // Auto-dim settings
   var dimTimeout = 60000; // 1 minute
@@ -22,6 +25,9 @@
     if (eventSource) {
       eventSource.close();
     }
+    if (healthCheckInterval) {
+      clearInterval(healthCheckInterval);
+    }
 
     setStatus('Connecting...', '');
     var tzOffset = new Date().getTimezoneOffset();
@@ -29,29 +35,42 @@
 
     eventSource.onopen = function() {
       reconnectAttempts = 0;
+      lastEventTime = Date.now();
       setStatus('Connected', 'connected');
+      startHealthCheck();
     };
 
     eventSource.onerror = function() {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+      }
       eventSource.close();
       setStatus('Disconnected - Reconnecting...', 'error');
       scheduleReconnect();
     };
 
+    // Handle keepalive (marks connection as alive)
+    eventSource.addEventListener('keepalive', function(e) {
+      lastEventTime = Date.now();
+    });
+
     // Handle config event
     eventSource.addEventListener('config', function(e) {
+      lastEventTime = Date.now();
       var config = JSON.parse(e.data);
       renderWidgets(config.widgets);
     });
 
     // Handle update event
     eventSource.addEventListener('update', function(e) {
+      lastEventTime = Date.now();
       var update = JSON.parse(e.data);
       updateWidget(update.id, update);
     });
 
     // Handle display event (brightness, etc.)
     eventSource.addEventListener('display', function(e) {
+      lastEventTime = Date.now();
       var display = JSON.parse(e.data);
       if (display.brightness !== undefined) {
         setBrightness(display.brightness);
@@ -62,6 +81,27 @@
     eventSource.addEventListener('reload', function(e) {
       window.location.reload(true);
     });
+  }
+
+  // Start health check to detect stale connections
+  function startHealthCheck() {
+    if (healthCheckInterval) {
+      clearInterval(healthCheckInterval);
+    }
+    healthCheckInterval = setInterval(function() {
+      var timeSinceLastEvent = Date.now() - lastEventTime;
+      if (timeSinceLastEvent > CONNECTION_TIMEOUT) {
+        console.log('Connection timeout - no events for ' + Math.round(timeSinceLastEvent / 1000) + 's');
+        if (eventSource) {
+          eventSource.close();
+        }
+        if (healthCheckInterval) {
+          clearInterval(healthCheckInterval);
+        }
+        setStatus('Connection stale - Reconnecting...', 'error');
+        scheduleReconnect();
+      }
+    }, 10000); // Check every 10 seconds
   }
 
   // Reconnect with exponential backoff
