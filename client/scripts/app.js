@@ -204,7 +204,7 @@
 
     var todayEvents = document.createElement('ul');
     todayEvents.className = 'calendar-events calendar-today-events';
-    renderCalendarEvents(todayEvents, config.today || []);
+    renderCalendarEvents(todayEvents, config.today || [], 'No events today');
     todaySection.appendChild(todayEvents);
 
     widget.appendChild(todaySection);
@@ -220,7 +220,7 @@
 
     var tomorrowEvents = document.createElement('ul');
     tomorrowEvents.className = 'calendar-events calendar-tomorrow-events';
-    renderCalendarEvents(tomorrowEvents, config.tomorrow || []);
+    renderCalendarEvents(tomorrowEvents, config.tomorrow || [], 'No events tomorrow');
     tomorrowSection.appendChild(tomorrowEvents);
 
     widget.appendChild(tomorrowSection);
@@ -229,13 +229,13 @@
   }
 
   // Render calendar events list
-  function renderCalendarEvents(container, events) {
+  function renderCalendarEvents(container, events, emptyText) {
     container.innerHTML = '';
 
     if (events.length === 0) {
       var empty = document.createElement('li');
       empty.className = 'calendar-empty';
-      empty.textContent = 'No events today';
+      empty.textContent = emptyText || 'No events';
       container.appendChild(empty);
       return;
     }
@@ -334,11 +334,11 @@
     // Calendar widget update
     if (data.today !== undefined) {
       var todayEl = widget.querySelector('.calendar-today-events');
-      if (todayEl) renderCalendarEvents(todayEl, data.today);
+      if (todayEl) renderCalendarEvents(todayEl, data.today, 'No events today');
     }
     if (data.tomorrow !== undefined) {
       var tomorrowEl = widget.querySelector('.calendar-tomorrow-events');
-      if (tomorrowEl) renderCalendarEvents(tomorrowEl, data.tomorrow);
+      if (tomorrowEl) renderCalendarEvents(tomorrowEl, data.tomorrow, 'No events tomorrow');
     }
 
     // Weather widget update
