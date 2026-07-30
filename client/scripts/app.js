@@ -435,11 +435,15 @@
 
   // Listen for touch/click to wake from dim
   document.addEventListener('click', resetDimTimer, false);
+  document.addEventListener('touchstart', resetDimTimer, false);
+
+  // Fullscreen must be requested from an "activation triggering" event.
+  // touchstart is NOT one of those - Chrome allows it anyway, Gecko does not,
+  // so Firefox for Android silently rejects the request. touchend qualifies.
   // Touch only: a mouse click on a desktop browser should not hijack the
   // window into fullscreen.
-  document.addEventListener('touchstart', function() {
+  document.addEventListener('touchend', function() {
     enterFullscreen();
-    resetDimTimer();
   }, false);
 
   // Start dim timer
