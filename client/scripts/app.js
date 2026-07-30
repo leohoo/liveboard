@@ -411,9 +411,36 @@
     }, dimTimeout);
   }
 
+  // Enter native fullscreen (Android/Chrome). Must be called from a user
+  // gesture. iOS gets fullscreen from apple-mobile-web-app-capable instead,
+  // and Safari 9 has no element fullscreen API, so this is a no-op there.
+  function enterFullscreen() {
+    var el = document.documentElement;
+    var request = el.requestFullscreen || el.webkitRequestFullscreen ||
+                  el.mozRequestFullScreen || el.msRequestFullscreen;
+    if (!request) {
+      return;
+    }
+    var current = document.fullscreenElement || document.webkitFullscreenElement ||
+                  document.mozFullScreenElement || document.msFullscreenElement;
+    if (current) {
+      return;
+    }
+    try {
+      request.call(el);
+    } catch (e) {
+      // Browser refused (not a user gesture, or disallowed) - ignore
+    }
+  }
+
   // Listen for touch/click to wake from dim
   document.addEventListener('click', resetDimTimer, false);
-  document.addEventListener('touchstart', resetDimTimer, false);
+  // Touch only: a mouse click on a desktop browser should not hijack the
+  // window into fullscreen.
+  document.addEventListener('touchstart', function() {
+    enterFullscreen();
+    resetDimTimer();
+  }, false);
 
   // Start dim timer
   resetDimTimer();

@@ -90,7 +90,20 @@ Edit `config/settings.json`:
 npm start
 ```
 
-Open `http://<server-ip>:3000` on your iPad (e.g., `http://192.168.1.100:3000`).
+Open `http://<server-ip>:3000` on your tablet (e.g., `http://192.168.1.100:3000`).
+
+### Fullscreen
+
+**iPad:** Share → *Add to Home Screen*, then launch from the home screen icon.
+
+**Android:** Just tap the dashboard — the first touch puts Chrome into
+fullscreen via the Fullscreen API. This works over plain HTTP.
+
+Android can also run LiveBoard as an installed app (`manifest.json` sets
+`"display": "fullscreen"`), but Chrome only offers *Install app* on a secure
+origin, so over `http://` you get a plain shortcut that opens in a tab. Tap
+to fullscreen instead, or serve LiveBoard over HTTPS if you want a real
+installed launcher.
 
 ### CLI Commands
 
