@@ -1,0 +1,12 @@
+<!-- Maskable variant: full-bleed background with the tiles inside the safe
+     zone, so Android launchers can crop to a circle/squircle without
+     clipping the design. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180">
+  <rect width="180" height="180" fill="#1a1a2e"/>
+  <g transform="translate(25.2,25.2) scale(0.72)">
+    <rect x="20" y="20" width="64" height="64" rx="12" fill="#4a9eff"/>
+    <rect x="96" y="20" width="64" height="64" rx="12" fill="#16213e"/>
+    <rect x="20" y="96" width="64" height="64" rx="12" fill="#16213e"/>
+    <rect x="96" y="96" width="64" height="64" rx="12" fill="#4a9eff"/>
+  </g>
+</svg>
