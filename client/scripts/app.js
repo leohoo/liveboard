@@ -411,9 +411,49 @@
     }, dimTimeout);
   }
 
+  // Enter native fullscreen (Android/Chrome). Must be called from a user
+  // gesture. iOS gets fullscreen from apple-mobile-web-app-capable instead,
+  // and Safari 9 has no element fullscreen API, so this is a no-op there.
+  function enterFullscreen() {
+    var el = document.documentElement;
+    var request = el.requestFullscreen || el.webkitRequestFullscreen ||
+                  el.mozRequestFullScreen || el.msRequestFullscreen;
+    if (!request) {
+      return;
+    }
+    var current = document.fullscreenElement || document.webkitFullscreenElement ||
+                  document.mozFullScreenElement || document.msFullscreenElement;
+    if (current) {
+      return;
+    }
+    try {
+      var pending = request.call(el);
+      // Prefixed variants return undefined, but modern ones return a promise
+      // that REJECTS rather than throws when the request is refused - which
+      // try/catch never sees. That is what hid the touchstart bug: the call
+      // succeeded, the promise rejected, and nothing surfaced. Swallow it
+      // deliberately instead of logging an unhandled rejection on every tap.
+      // Bracket notation keeps `catch` safe as a property name on old parsers.
+      if (pending && typeof pending.then === 'function') {
+        pending['catch'](function() {});
+      }
+    } catch (e) {
+      // Browser refused outright (not a user gesture, or disallowed) - ignore
+    }
+  }
+
   // Listen for touch/click to wake from dim
   document.addEventListener('click', resetDimTimer, false);
   document.addEventListener('touchstart', resetDimTimer, false);
+
+  // Fullscreen must be requested from an "activation triggering" event.
+  // touchstart is NOT one of those - Chrome allows it anyway, Gecko does not,
+  // so Firefox for Android silently rejects the request. touchend qualifies.
+  // Touch only: a mouse click on a desktop browser should not hijack the
+  // window into fullscreen.
+  document.addEventListener('touchend', function() {
+    enterFullscreen();
+  }, false);
 
   // Start dim timer
   resetDimTimer();
