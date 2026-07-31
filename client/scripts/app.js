@@ -427,9 +427,18 @@
       return;
     }
     try {
-      request.call(el);
+      var pending = request.call(el);
+      // Prefixed variants return undefined, but modern ones return a promise
+      // that REJECTS rather than throws when the request is refused - which
+      // try/catch never sees. That is what hid the touchstart bug: the call
+      // succeeded, the promise rejected, and nothing surfaced. Swallow it
+      // deliberately instead of logging an unhandled rejection on every tap.
+      // Bracket notation keeps `catch` safe as a property name on old parsers.
+      if (pending && typeof pending.then === 'function') {
+        pending['catch'](function() {});
+      }
     } catch (e) {
-      // Browser refused (not a user gesture, or disallowed) - ignore
+      // Browser refused outright (not a user gesture, or disallowed) - ignore
     }
   }
 
