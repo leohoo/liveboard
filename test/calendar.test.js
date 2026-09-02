@@ -160,4 +160,70 @@ if (rescheduledEvent && rescheduledEvent.time === '16:00') {
 }
 
 console.log('\n' + (passed ? 'All tests passed!' : 'Some tests failed!'));
+
+// Test 3: Declined RSVP is hidden
+console.log('\n=== Declined RSVP Test ===\n');
+
+var OWNER_EMAIL = 'owner@example.com';
+
+function formatDateLocal(d) {
+  var year = d.getFullYear();
+  var month = (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
+  var day = (d.getDate() < 10 ? '0' : '') + d.getDate();
+  return year + month + day + 'T160000';
+}
+
+var today = new Date();
+var todayLocal = formatDateLocal(today);
+
+function createDeclinedSingleEventICS() {
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'BEGIN:VEVENT',
+    'UID:test-declined-single',
+    'DTSTART;TZID=Asia/Tokyo:' + todayLocal,
+    'DTEND;TZID=Asia/Tokyo:' + todayLocal.replace('160000', '170000'),
+    'SUMMARY:Declined Meetup',
+    'ATTENDEE;PARTSTAT=DECLINED:mailto:' + OWNER_EMAIL,
+    'END:VEVENT',
+    'BEGIN:VEVENT',
+    'UID:test-accepted-single',
+    'DTSTART;TZID=Asia/Tokyo:' + todayLocal,
+    'DTEND;TZID=Asia/Tokyo:' + todayLocal.replace('160000', '170000'),
+    'SUMMARY:Accepted Meetup',
+    'ATTENDEE;PARTSTAT=ACCEPTED:mailto:' + OWNER_EMAIL,
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+}
+
+var declinedICS = createDeclinedSingleEventICS();
+var declinedResultFiltered = calendar.parseICS(declinedICS, 'test', -540, OWNER_EMAIL);
+var declinedResultUnfiltered = calendar.parseICS(declinedICS, 'test', -540, null);
+
+console.log('Test: Single event declined by calendar owner is hidden when ownerEmail is passed\n');
+
+if (!declinedResultFiltered.today.some(function(e) { return e.summary === 'Declined Meetup'; })) {
+  console.log('PASS: Declined event is hidden when filtering by owner email');
+} else {
+  console.log('FAIL: Declined event should be hidden');
+  passed = false;
+}
+
+if (declinedResultFiltered.today.some(function(e) { return e.summary === 'Accepted Meetup'; })) {
+  console.log('PASS: Accepted event still shows');
+} else {
+  console.log('FAIL: Accepted event should still show');
+  passed = false;
+}
+
+if (declinedResultUnfiltered.today.some(function(e) { return e.summary === 'Declined Meetup'; })) {
+  console.log('PASS: Without ownerEmail, declined event is shown (backward compatible)');
+} else {
+  console.log('FAIL: Without ownerEmail, declined event should still show');
+  passed = false;
+}
+
+console.log('\n' + (passed ? 'All tests passed!' : 'Some tests failed!'));
 process.exit(passed ? 0 : 1);

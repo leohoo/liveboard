@@ -93,6 +93,18 @@ function broadcastBrightness() {
   }
 }
 
+// Extract the calendar's identity from a Google Calendar private ICS URL
+// (https://calendar.google.com/calendar/ical/<id>/private-<hash>/basic.ics).
+// <id> is used to match this calendar's own RSVP (ATTENDEE PARTSTAT) on each
+// event, so declined events can be hidden. Returns null if <id> isn't
+// present (no RSVP filtering applies in that case).
+function extractOwnerEmail(url) {
+  var match = url && url.match(/\/ical\/([^/]+)/);
+  if (!match) return null;
+  var decoded = decodeURIComponent(match[1]);
+  return decoded.indexOf('@') !== -1 ? decoded : null;
+}
+
 // Fetch calendar events from all configured calendars
 function fetchCalendar() {
   var calendars = settings.calendars || [];
@@ -116,7 +128,8 @@ function fetchCalendar() {
       res.on('data', function(chunk) { icsData += chunk; });
       res.on('end', function() {
         try {
-          var events = calendar.parseICS(icsData, cal.badge, clientTzOffset);
+          var ownerEmail = extractOwnerEmail(cal.url);
+          var events = calendar.parseICS(icsData, cal.badge, clientTzOffset, ownerEmail);
           allEvents.today = allEvents.today.concat(events.today);
           allEvents.tomorrow = allEvents.tomorrow.concat(events.tomorrow);
         } catch (e) {
