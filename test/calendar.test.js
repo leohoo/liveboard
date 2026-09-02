@@ -7,6 +7,33 @@
 
 var calendar = require('../server/calendar');
 
+// Build a Date at least `minutesFromNow` in the future, clamped to stay
+// within today (so tests don't roll into tomorrow) and to survive the
+// app's "hide events that ended more than 1 hour ago" cutoff regardless of
+// what time of day the test suite happens to run.
+function futureTodayAt(minutesFromNow) {
+  var d = new Date();
+  d.setSeconds(0, 0);
+  d.setMinutes(d.getMinutes() + minutesFromNow);
+  var endOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0);
+  return d > endOfDay ? endOfDay : d;
+}
+
+function formatICSTime(d) {
+  var year = d.getFullYear();
+  var month = (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
+  var day = (d.getDate() < 10 ? '0' : '') + d.getDate();
+  var hour = (d.getHours() < 10 ? '0' : '') + d.getHours();
+  var min = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+  return year + month + day + 'T' + hour + min + '00';
+}
+
+function formatClockTime(d) {
+  var hour = (d.getHours() < 10 ? '0' : '') + d.getHours();
+  var min = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+  return hour + ':' + min;
+}
+
 // Create a recurring event that started 5 years ago with daily recurrence
 function createOldRecurringICS() {
   var fiveYearsAgo = new Date();
@@ -106,9 +133,14 @@ function createRescheduledExceptionICS() {
   var startDate = formatDateLocal(twoDaysAgo);
   var untilDate = formatDate(yesterday);
   var originalOccurrence = formatDateLocal(yesterday);
-  var rescheduledDate = formatDateLocal(today);
 
-  return [
+  // Rescheduled occurrence must land "today" and stay within the app's
+  // 1-hour-after-end display window, regardless of what time the test runs.
+  var rescheduledStart = futureTodayAt(120);
+  var rescheduledEnd = futureTodayAt(150);
+  var rescheduledDate = formatICSTime(rescheduledStart);
+
+  var ics = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'BEGIN:VEVENT',
@@ -122,14 +154,17 @@ function createRescheduledExceptionICS() {
     'UID:test-recurring-with-exception',
     'RECURRENCE-ID;TZID=Asia/Tokyo:' + originalOccurrence,
     'DTSTART;TZID=Asia/Tokyo:' + rescheduledDate,
-    'DTEND;TZID=Asia/Tokyo:' + rescheduledDate.replace('160000', '163000'),
+    'DTEND;TZID=Asia/Tokyo:' + formatICSTime(rescheduledEnd),
     'SUMMARY:Rescheduled Meeting',
     'END:VEVENT',
     'END:VCALENDAR'
   ].join('\r\n');
+
+  return { ics: ics, expectedTime: formatClockTime(rescheduledStart) };
 }
 
-var exceptionICS = createRescheduledExceptionICS();
+var exceptionData = createRescheduledExceptionICS();
+var exceptionICS = exceptionData.ics;
 var exceptionResult = calendar.parseICS(exceptionICS, 'test', -540);
 
 console.log('Test: Recurrence ended yesterday, but one occurrence rescheduled to today\n');
@@ -152,10 +187,10 @@ if (rescheduledEvent) {
   passed = false;
 }
 
-if (rescheduledEvent && rescheduledEvent.time === '16:00') {
-  console.log('PASS: Event time is correct (16:00)');
+if (rescheduledEvent && rescheduledEvent.time === exceptionData.expectedTime) {
+  console.log('PASS: Event time is correct (' + exceptionData.expectedTime + ')');
 } else {
-  console.log('FAIL: Event time should be 16:00, got:', rescheduledEvent ? rescheduledEvent.time : 'N/A');
+  console.log('FAIL: Event time should be ' + exceptionData.expectedTime + ', got:', rescheduledEvent ? rescheduledEvent.time : 'N/A');
   passed = false;
 }
 
@@ -166,15 +201,10 @@ console.log('\n=== Declined RSVP Test ===\n');
 
 var OWNER_EMAIL = 'owner@example.com';
 
-function formatDateLocal(d) {
-  var year = d.getFullYear();
-  var month = (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
-  var day = (d.getDate() < 10 ? '0' : '') + d.getDate();
-  return year + month + day + 'T160000';
-}
-
-var today = new Date();
-var todayLocal = formatDateLocal(today);
+// Event time must land "today" and stay within the app's 1-hour-after-end
+// display window, regardless of what time the test runs.
+var todayStart = formatICSTime(futureTodayAt(120));
+var todayEnd = formatICSTime(futureTodayAt(150));
 
 function createDeclinedSingleEventICS() {
   return [
@@ -182,15 +212,15 @@ function createDeclinedSingleEventICS() {
     'VERSION:2.0',
     'BEGIN:VEVENT',
     'UID:test-declined-single',
-    'DTSTART;TZID=Asia/Tokyo:' + todayLocal,
-    'DTEND;TZID=Asia/Tokyo:' + todayLocal.replace('160000', '170000'),
+    'DTSTART;TZID=Asia/Tokyo:' + todayStart,
+    'DTEND;TZID=Asia/Tokyo:' + todayEnd,
     'SUMMARY:Declined Meetup',
     'ATTENDEE;PARTSTAT=DECLINED:mailto:' + OWNER_EMAIL,
     'END:VEVENT',
     'BEGIN:VEVENT',
     'UID:test-accepted-single',
-    'DTSTART;TZID=Asia/Tokyo:' + todayLocal,
-    'DTEND;TZID=Asia/Tokyo:' + todayLocal.replace('160000', '170000'),
+    'DTSTART;TZID=Asia/Tokyo:' + todayStart,
+    'DTEND;TZID=Asia/Tokyo:' + todayEnd,
     'SUMMARY:Accepted Meetup',
     'ATTENDEE;PARTSTAT=ACCEPTED:mailto:' + OWNER_EMAIL,
     'END:VEVENT',
@@ -222,6 +252,74 @@ if (declinedResultUnfiltered.today.some(function(e) { return e.summary === 'Decl
   console.log('PASS: Without ownerEmail, declined event is shown (backward compatible)');
 } else {
   console.log('FAIL: Without ownerEmail, declined event should still show');
+  passed = false;
+}
+
+console.log('\n' + (passed ? 'All tests passed!' : 'Some tests failed!'));
+
+// Test 4: Recurrence exception with no RSVP data inherits the series' decline
+console.log('\n=== Declined Series + Exception Test ===\n');
+
+function createDeclinedSeriesWithExceptionICS() {
+  var today = new Date();
+  var yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  var twoDaysAgo = new Date(today);
+  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+
+  function formatDate(d) {
+    return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  }
+
+  function formatDateLocal(d) {
+    var year = d.getFullYear();
+    var month = (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
+    var day = (d.getDate() < 10 ? '0' : '') + d.getDate();
+    return year + month + day + 'T160000';
+  }
+
+  var startDate = formatDateLocal(twoDaysAgo);
+  var untilDate = formatDate(yesterday);
+  var originalOccurrence = formatDateLocal(yesterday);
+
+  // Rescheduled occurrence must land "today" and stay within the app's
+  // 1-hour-after-end display window, regardless of what time the test runs.
+  var rescheduledStart = formatICSTime(futureTodayAt(120));
+  var rescheduledEnd = formatICSTime(futureTodayAt(150));
+
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'BEGIN:VEVENT',
+    'UID:test-declined-series-with-exception',
+    'DTSTART;TZID=Asia/Tokyo:' + startDate,
+    'DTEND;TZID=Asia/Tokyo:' + startDate.replace('160000', '163000'),
+    'RRULE:FREQ=DAILY;UNTIL=' + untilDate,
+    'SUMMARY:Declined Series',
+    'ATTENDEE;PARTSTAT=DECLINED:mailto:' + OWNER_EMAIL,
+    'END:VEVENT',
+    'BEGIN:VEVENT',
+    'UID:test-declined-series-with-exception',
+    'RECURRENCE-ID;TZID=Asia/Tokyo:' + originalOccurrence,
+    'DTSTART;TZID=Asia/Tokyo:' + rescheduledStart,
+    'DTEND;TZID=Asia/Tokyo:' + rescheduledEnd,
+    'SUMMARY:Rescheduled Occurrence (no RSVP data of its own)',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+}
+
+var declinedSeriesICS = createDeclinedSeriesWithExceptionICS();
+var declinedSeriesResult = calendar.parseICS(declinedSeriesICS, 'test', -540, OWNER_EMAIL);
+
+console.log('Test: Owner declined the whole series; a rescheduled exception with no RSVP data of its own should stay hidden\n');
+console.log('Results:');
+console.log('  Events found today:', declinedSeriesResult.today.length);
+
+if (!declinedSeriesResult.today.some(function(e) { return e.summary.indexOf('Rescheduled Occurrence') === 0; })) {
+  console.log('PASS: Exception occurrence inherits the series decline and stays hidden');
+} else {
+  console.log('FAIL: Exception occurrence without its own RSVP data should inherit the series decline');
   passed = false;
 }
 

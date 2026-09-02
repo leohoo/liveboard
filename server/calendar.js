@@ -6,8 +6,8 @@
 var ICAL = require('ical.js');
 
 /**
- * Check the PARTSTAT of a specific attendee on a vevent (e.g. "DECLINED", "ACCEPTED").
- * Returns null if the email has no ATTENDEE entry on this event.
+ * Get the PARTSTAT of a specific attendee on a vevent (e.g. "declined", "Accepted").
+ * Returns null if the vevent has no ATTENDEE entry for this email at all.
  */
 function getAttendeePartstat(vevent, email) {
   if (!email) return null;
@@ -16,14 +16,23 @@ function getAttendeePartstat(vevent, email) {
   for (var i = 0; i < attendees.length; i++) {
     var value = attendees[i].getFirstValue();
     if (typeof value === 'string' && value.toLowerCase() === target) {
-      return attendees[i].getParameter('partstat');
+      return attendees[i].getParameter('partstat') || '';
     }
   }
   return null;
 }
 
-function isDeclinedBy(vevent, email) {
-  return getAttendeePartstat(vevent, email) === 'DECLINED';
+/**
+ * Whether `email` declined this vevent. PARTSTAT is compared
+ * case-insensitively since it's an ICS enumerated token, not free text.
+ * If the vevent has no ATTENDEE entry for `email` at all (e.g. a recurrence
+ * exception that doesn't repeat the series' RSVP data), falls back to
+ * `fallback` instead of assuming "not declined".
+ */
+function isDeclinedBy(vevent, email, fallback) {
+  var partstat = getAttendeePartstat(vevent, email);
+  if (partstat === null) return !!fallback;
+  return partstat.toUpperCase() === 'DECLINED';
 }
 
 /**
@@ -91,14 +100,18 @@ function parseICS(icsData, badge, tzOffset, ownerEmail) {
   var vcalendar = new ICAL.Component(jcalData);
   var vevents = vcalendar.getAllSubcomponents('vevent');
 
-  // Track recurrence exceptions (RECURRENCE-ID events)
+  // Track recurrence exceptions (RECURRENCE-ID events) and their series masters,
+  // so an exception with no RSVP data of its own can inherit the series' decline.
   var exceptions = {};
+  var masters = {};
   vevents.forEach(function(vevent) {
     var recurrenceId = vevent.getFirstPropertyValue('recurrence-id');
+    var uid = vevent.getFirstPropertyValue('uid');
     if (recurrenceId) {
-      var uid = vevent.getFirstPropertyValue('uid');
       if (!exceptions[uid]) exceptions[uid] = {};
       exceptions[uid][recurrenceId.toString()] = vevent;
+    } else {
+      masters[uid] = vevent;
     }
   });
 
@@ -123,8 +136,12 @@ function parseICS(icsData, badge, tzOffset, ownerEmail) {
       // Skip if in the past
       if (startDate < todayStart) return;
 
-      // Skip if the calendar owner declined this occurrence
-      if (isDeclinedBy(vevent, ownerEmail)) return;
+      // Skip if the calendar owner declined this occurrence. If the
+      // exception itself carries no RSVP data, inherit its series' decline
+      // (the master may be absent, e.g. an orphaned exception; treat that as not declined).
+      var uid = vevent.getFirstPropertyValue('uid');
+      var masterDeclined = masters[uid] ? isDeclinedBy(masters[uid], ownerEmail, false) : false;
+      if (isDeclinedBy(vevent, ownerEmail, masterDeclined)) return;
 
       var targetList = evtDateStr === todayStr ? result.today :
                        evtDateStr === tomorrowStr ? result.tomorrow : null;
@@ -176,7 +193,7 @@ function parseICS(icsData, badge, tzOffset, ownerEmail) {
     // Check if recurring
     if (event.isRecurring()) {
       // Master series RSVP; a per-occurrence exception can override this below
-      var seriesDeclined = isDeclinedBy(vevent, ownerEmail);
+      var seriesDeclined = isDeclinedBy(vevent, ownerEmail, false);
 
       // Don't pass start time - let iterator start from DTSTART
       // This preserves event times correctly
@@ -201,8 +218,10 @@ function parseICS(icsData, badge, tzOffset, ownerEmail) {
         var exceptionEvent = exceptions[uid] && exceptions[uid][next.toString()];
         var endDate;
         if (exceptionEvent) {
-          // Skip if the calendar owner declined this specific occurrence
-          if (isDeclinedBy(exceptionEvent, ownerEmail)) continue;
+          // Skip if the calendar owner declined this specific occurrence.
+          // If the exception itself carries no RSVP data, inherit the
+          // series' declined status instead of assuming "not declined".
+          if (isDeclinedBy(exceptionEvent, ownerEmail, seriesDeclined)) continue;
 
           // Use the modified event instead
           var exEvent = new ICAL.Event(exceptionEvent);
@@ -240,7 +259,7 @@ function parseICS(icsData, badge, tzOffset, ownerEmail) {
       }
     } else {
       // Skip if the calendar owner declined this event
-      if (isDeclinedBy(vevent, ownerEmail)) return;
+      if (isDeclinedBy(vevent, ownerEmail, false)) return;
 
       // Single event
       var jsDate = event.startDate.toJSDate();
