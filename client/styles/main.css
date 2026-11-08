@@ -129,8 +129,8 @@ html, body {
 }
 
 .widget-weather .weather-highlow {
-  font-size: 16px;
-  opacity: 0.6;
+  font-size: 26px;
+  font-weight: 500;
 }
 
 .widget-weather .weather-high {
@@ -160,6 +160,15 @@ html, body {
 
 .widget-weather .weather-tomorrow-condition {
   opacity: 0.8;
+}
+
+.widget-weather .weather-tomorrow-highlow {
+  font-size: 14px;
+  opacity: 0.6;
+}
+
+.widget-weather .weather-tomorrow-highlow .weather-low {
+  margin-left: 8px;
 }
 
 /* Message widget */
