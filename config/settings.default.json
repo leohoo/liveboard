@@ -9,5 +9,14 @@
     "nightBrightness": 30,
     "dayStart": "07:00",
     "nightStart": "22:00"
+  },
+  "profiles": {
+    "default": {
+      "modules": [
+        "date",
+        "weather",
+        "calendar"
+      ]
+    }
   }
 }

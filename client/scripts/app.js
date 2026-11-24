@@ -20,6 +20,43 @@
   var isBoosted = false; // true = 100% brightness from touch
   var dimTimer = null;
 
+  // Server clock minus local clock, refreshed by config and keepalive.
+  // Meter staleness is judged on the server's clock, and keeps advancing
+  // on the local clock while disconnected.
+  var serverOffset = 0;
+
+  // Profile: from ?profile=NAME, remembered so a home-screen icon whose
+  // start URL drops the query (PWA manifest start_url "/") keeps it.
+  // ?profile= with an empty value clears the remembered one.
+  function getProfile() {
+    var match = /[?&]profile=([^&#]*)/.exec(window.location.search);
+    var name = '';
+    if (match) {
+      try {
+        name = decodeURIComponent(match[1].replace(/\+/g, ' '));
+      } catch (e) {
+        // Malformed escape (e.g. ?profile=%): ignore the parameter
+        match = null;
+      }
+    }
+    try {
+      if (match) {
+        if (name) {
+          window.localStorage.setItem('liveboard.profile', name);
+        } else {
+          window.localStorage.removeItem('liveboard.profile');
+        }
+        return name;
+      }
+      return window.localStorage.getItem('liveboard.profile') || '';
+    } catch (e) {
+      // Safari private mode throws on localStorage; use the URL only
+      return name;
+    }
+  }
+
+  var profile = getProfile();
+
   // Initialize connection
   function connect() {
     if (eventSource) {
@@ -31,7 +68,11 @@
 
     setStatus('Connecting...', '');
     var tzOffset = new Date().getTimezoneOffset();
-    eventSource = new EventSource('/events?tz=' + tzOffset);
+    var url = '/events?tz=' + tzOffset;
+    if (profile) {
+      url += '&profile=' + encodeURIComponent(profile);
+    }
+    eventSource = new EventSource(url);
 
     eventSource.onopen = function() {
       reconnectAttempts = 0;
@@ -52,12 +93,15 @@
     // Handle keepalive (marks connection as alive)
     eventSource.addEventListener('keepalive', function(e) {
       lastEventTime = Date.now();
+      var data = JSON.parse(e.data);
+      if (data.timestamp) syncServerTime(data.timestamp);
     });
 
     // Handle config event
     eventSource.addEventListener('config', function(e) {
       lastEventTime = Date.now();
       var config = JSON.parse(e.data);
+      if (config.serverTime) syncServerTime(config.serverTime);
       renderWidgets(config.widgets);
     });
 
@@ -81,6 +125,14 @@
     eventSource.addEventListener('reload', function(e) {
       window.location.reload(true);
     });
+  }
+
+  function syncServerTime(serverTime) {
+    serverOffset = serverTime - Date.now();
+  }
+
+  function serverNow() {
+    return Date.now() + serverOffset;
   }
 
   // Start health check to detect stale connections
@@ -150,6 +202,10 @@
 
     if (config.type === 'date') {
       return createDateWidget(widget, config);
+    }
+
+    if (config.type === 'meters') {
+      return createMetersWidget(widget, config);
     }
 
     var value = document.createElement('div');
@@ -326,10 +382,112 @@
     return widget;
   }
 
+  // Meters widget: groups of "percent left" rows pushed from another machine
+  function createMetersWidget(widget, config) {
+    widget.metersData = config.meters || null;
+    widget.metersStaleAfter = config.staleAfter || 15 * 60 * 1000;
+    renderMeters(widget);
+    return widget;
+  }
+
+  function pad2(n) {
+    return (n < 10 ? '0' : '') + n;
+  }
+
+  var DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  function sameDay(a, b) {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() &&
+           a.getDate() === b.getDate();
+  }
+
+  // "15:19" today, "Fri 22:59" within a week, "12/3 09:00" beyond
+  function formatWhen(ms, nowMs) {
+    var d = new Date(ms);
+    var now = new Date(nowMs);
+    var clock = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    if (sameDay(d, now)) return clock;
+    if (Math.abs(ms - nowMs) < 6 * 24 * 3600 * 1000) return DAY_NAMES[d.getDay()] + ' ' + clock;
+    return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + clock;
+  }
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function renderMeters(widget) {
+    var data = widget.metersData;
+    var now = serverNow();
+    widget.innerHTML = '';
+
+    if (!data) {
+      widget.className = 'widget widget-meters';
+      widget.appendChild(el('div', 'meters-waiting', 'Waiting for meters…'));
+      return;
+    }
+
+    var stale = now - data.updatedAt > widget.metersStaleAfter;
+    widget.className = 'widget widget-meters' + (stale ? ' stale' : '');
+
+    var groupsEl = el('div', 'meters-groups');
+    for (var i = 0; i < data.groups.length; i++) {
+      var g = data.groups[i];
+      var groupEl = el('div', 'meters-group');
+      groupEl.appendChild(el('div', 'meters-name', g.name + ' · left'));
+
+      if (g.status !== 'ok') {
+        groupEl.appendChild(el('div', 'meters-unavailable', 'Usage unavailable'));
+      }
+      for (var j = 0; g.status === 'ok' && j < g.rows.length; j++) {
+        var r = g.rows[j];
+        var rowEl = el('div', 'meters-row');
+
+        var line = el('div', 'meters-line');
+        line.appendChild(el('span', 'meters-label', r.label));
+        line.appendChild(el('span', 'meters-value', Math.round(r.percent) + '%'));
+        rowEl.appendChild(line);
+
+        var sub = el('div', 'meters-sub');
+        var bar = el('span', 'meters-bar');
+        var fill = el('span', 'meters-fill');
+        fill.style.width = r.percent + '%';
+        bar.appendChild(fill);
+        sub.appendChild(bar);
+        if (r.resetsAt) {
+          sub.appendChild(el('span', 'meters-reset', 'resets ' + formatWhen(r.resetsAt, now)));
+        }
+        rowEl.appendChild(sub);
+        groupEl.appendChild(rowEl);
+      }
+      groupsEl.appendChild(groupEl);
+    }
+    widget.appendChild(groupsEl);
+
+    widget.appendChild(el('div', 'meters-foot',
+      (stale ? 'As of ' : 'Updated ') + formatWhen(data.updatedAt, now)));
+  }
+
+  // Re-render meters periodically so "stale" and reset times stay current,
+  // including while disconnected
+  setInterval(function() {
+    if (widgets.meters) renderMeters(widgets.meters);
+  }, 30000);
+
   // Update a single widget
   function updateWidget(id, data) {
     var widget = widgets[id];
     if (!widget) return;
+
+    if (id === 'meters') {
+      if (data.serverTime) syncServerTime(data.serverTime);
+      widget.metersData = data.meters || null;
+      if (data.staleAfter) widget.metersStaleAfter = data.staleAfter;
+      renderMeters(widget);
+      return;
+    }
 
     // Calendar widget update
     if (data.today !== undefined) {

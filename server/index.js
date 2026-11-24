@@ -6,12 +6,14 @@ var Lunar = require('lunar-javascript').Lunar;
 var calendar = require('./calendar');
 var timezone = require('./timezone');
 var weather = require('./weather');
+var profiles = require('./profiles');
+var meters = require('./meters');
 
 var app = express();
 var PORT = process.env.PORT || 3000;
 
 // Config file path
-var CONFIG_PATH = path.join(__dirname, '..', 'config', 'settings.json');
+var CONFIG_PATH = process.env.LIVEBOARD_CONFIG || path.join(__dirname, '..', 'config', 'settings.json');
 var CONFIG_DEFAULT_PATH = path.join(__dirname, '..', 'config', 'settings.default.json');
 
 // Load settings
@@ -58,6 +60,22 @@ var weatherData = {
 
 // Calendar data cache
 var calendarEvents = { today: [], tomorrow: [] };
+
+// Latest pushed meters (in memory; the pusher resends on its own schedule)
+var meterStore = meters.createStore();
+var METERS_STALE_DEFAULT_MINUTES = 15;
+
+function metersUpdate() {
+  var cfg = settings.meters || {};
+  var minutes = typeof cfg.staleAfterMinutes === 'number' && cfg.staleAfterMinutes > 0
+    ? cfg.staleAfterMinutes : METERS_STALE_DEFAULT_MINUTES;
+  return {
+    id: 'meters',
+    meters: meterStore.get(),
+    staleAfter: minutes * 60 * 1000,
+    serverTime: Date.now()
+  };
+}
 
 // Calculate current brightness based on schedule (using client timezone)
 function getCurrentBrightness() {
@@ -192,16 +210,12 @@ function finishCalendarUpdate(allEvents) {
   broadcastCalendar();
 }
 
-// Broadcast calendar to all clients
-function broadcastCalendar() {
-  var update = {
-    id: 'calendar',
-    today: calendarEvents.today,
-    tomorrow: calendarEvents.tomorrow
-  };
+// Send an event to every client whose profile includes moduleId, dropping dead ones
+function broadcastToModule(moduleId, event, data) {
   var deadClients = [];
   clients.forEach(function(client) {
-    if (!sendEvent(client.res, 'update', update)) {
+    if (!profiles.hasModule(client.profile, moduleId)) return;
+    if (!sendEvent(client.res, event, data)) {
       deadClients.push(client.id);
     }
   });
@@ -209,6 +223,15 @@ function broadcastCalendar() {
     clients = clients.filter(function(c) { return deadClients.indexOf(c.id) === -1; });
     console.log('Removed', deadClients.length, 'dead client(s) - Total clients:', clients.length);
   }
+}
+
+// Broadcast calendar to clients showing it
+function broadcastCalendar() {
+  broadcastToModule('calendar', 'update', {
+    id: 'calendar',
+    today: calendarEvents.today,
+    tomorrow: calendarEvents.tomorrow
+  });
 }
 
 // Fetch weather from tenki.jp
@@ -240,9 +263,8 @@ function fetchWeather() {
   });
 }
 
-// Broadcast weather to all clients
-function broadcastWeather() {
-  var update = {
+function weatherUpdate() {
+  return {
     id: 'weather',
     temp: weatherData.temp,
     high: weatherData.high,
@@ -253,16 +275,11 @@ function broadcastWeather() {
     tomorrowCondition: weatherData.tomorrowCondition,
     location: weatherData.location
   };
-  var deadClients = [];
-  clients.forEach(function(client) {
-    if (!sendEvent(client.res, 'update', update)) {
-      deadClients.push(client.id);
-    }
-  });
-  if (deadClients.length > 0) {
-    clients = clients.filter(function(c) { return deadClients.indexOf(c.id) === -1; });
-    console.log('Removed', deadClients.length, 'dead client(s) - Total clients:', clients.length);
-  }
+}
+
+// Broadcast weather to clients showing it
+function broadcastWeather() {
+  broadcastToModule('weather', 'update', weatherUpdate());
 }
 
 // SSE endpoint
@@ -284,58 +301,42 @@ app.get('/events', function(req, res) {
     startCalendarFetching();
   }
 
-  // Add client to list
+  // Add client to list. The profile decides which modules it receives.
   var clientId = Date.now();
-  var client = { id: clientId, res: res };
+  var profile = profiles.resolveProfile(settings, req.query.profile);
+  var client = { id: clientId, res: res, profile: profile };
   clients.push(client);
-  console.log('Client connected:', clientId, '- Total clients:', clients.length);
+  console.log('Client connected:', clientId, '(profile ' + profile.name + ') - Total clients:', clients.length);
 
-  // Send initial config
-  var config = {
-    layout: 'single',
-    widgets: [
-      {
-        id: 'date',
-        type: 'date',
-        value: ''
-      },
-      {
-        id: 'weather',
-        type: 'weather',
-        temp: weatherData.temp,
-        high: weatherData.high,
-        low: weatherData.low,
-        condition: weatherData.condition,
-        tomorrowHigh: weatherData.tomorrowHigh,
-        tomorrowLow: weatherData.tomorrowLow,
-        tomorrowCondition: weatherData.tomorrowCondition,
-        location: weatherData.location
-      },
-      {
-        id: 'calendar',
-        type: 'calendar',
-        today: calendarEvents.today,
-        tomorrow: calendarEvents.tomorrow
-      }
-    ]
+  // Send initial config: the profile's modules, in the profile's order
+  var allWidgets = {
+    date: { id: 'date', type: 'date', value: '' },
+    weather: Object.assign({ type: 'weather' }, weatherUpdate()),
+    calendar: {
+      id: 'calendar',
+      type: 'calendar',
+      today: calendarEvents.today,
+      tomorrow: calendarEvents.tomorrow
+    },
+    meters: Object.assign({ type: 'meters' }, metersUpdate())
   };
-  sendEvent(res, 'config', config);
+  sendEvent(res, 'config', {
+    layout: 'single',
+    serverTime: Date.now(),
+    widgets: profile.modules
+      .filter(function(id) { return Object.prototype.hasOwnProperty.call(allWidgets, id); })
+      .map(function(id) { return allWidgets[id]; })
+  });
 
   // Send immediate date update
-  sendDateUpdate(res);
+  if (profiles.hasModule(profile, 'date')) {
+    sendDateUpdate(res);
+  }
 
   // Send current weather
-  sendEvent(res, 'update', {
-    id: 'weather',
-    temp: weatherData.temp,
-    high: weatherData.high,
-    low: weatherData.low,
-    condition: weatherData.condition,
-    tomorrowHigh: weatherData.tomorrowHigh,
-    tomorrowLow: weatherData.tomorrowLow,
-    tomorrowCondition: weatherData.tomorrowCondition,
-    location: weatherData.location
-  });
+  if (profiles.hasModule(profile, 'weather')) {
+    sendEvent(res, 'update', weatherUpdate());
+  }
 
   // Send current brightness
   sendEvent(res, 'display', { brightness: getCurrentBrightness() });
@@ -357,6 +358,21 @@ app.get('/events', function(req, res) {
     clients = clients.filter(function(c) { return c.id !== clientId; });
     console.log('Client disconnected:', clientId, '- Total clients:', clients.length);
   });
+});
+
+// Receive meters from a pusher (see server/meters.js for the format).
+// Off unless settings.json enables it: there is no auth, so only turn it
+// on where the LAN is trusted.
+app.post('/api/push/meters', function(req, res) {
+  if (!settings.meters || settings.meters.push !== true) {
+    return res.status(404).json({ error: 'meters push is disabled' });
+  }
+  var result = meterStore.push(req.body);
+  if (result.error) {
+    return res.status(result.status).json({ error: result.error });
+  }
+  broadcastToModule('meters', 'update', metersUpdate());
+  res.json({ success: true });
 });
 
 // Health check
@@ -417,8 +433,14 @@ app.post('/api/settings', function(req, res) {
     }
 
     // Update settings
+    var profilesChanged = JSON.stringify(settings.profiles) !== JSON.stringify(newSettings.profiles);
     settings = newSettings;
     saveSettings(settings);
+
+    // Widgets are chosen at connect time, so clients must reconnect to pick up profile changes
+    if (profilesChanged) {
+      clients.forEach(function(client) { sendEvent(client.res, 'reload', {}); });
+    }
 
     // Update weather location display
     weatherData.location = settings.weather.location;
@@ -429,6 +451,9 @@ app.post('/api/settings', function(req, res) {
 
     // Update brightness immediately
     broadcastBrightness();
+
+    // Re-send meters so a changed staleness threshold applies now
+    broadcastToModule('meters', 'update', metersUpdate());
 
     res.json({ success: true });
   } catch (e) {
@@ -469,6 +494,7 @@ function sendDateUpdate(res) {
 setInterval(function() {
   var deadClients = [];
   clients.forEach(function(client) {
+    if (!profiles.hasModule(client.profile, 'date')) return;
     try {
       sendDateUpdate(client.res);
     } catch (e) {

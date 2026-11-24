@@ -20,7 +20,9 @@ liveboard/
 │   ├── index.js          # Express server, SSE endpoints
 │   ├── calendar.js       # ICS parsing with performance optimizations
 │   ├── weather.js        # Weather fetching from tenki.jp
-│   └── timezone.js       # Timezone conversion utilities
+│   ├── timezone.js       # Timezone conversion utilities
+│   ├── profiles.js       # Per-client module lists (?profile=NAME)
+│   └── meters.js         # Pushed meters: validation and store
 ├── client/
 │   ├── index.html        # Dashboard page
 │   ├── styles/main.css   # Flexbox layout with -webkit- prefixes
@@ -51,6 +53,7 @@ liveboard/
 - `GET /api/settings` - Get settings (calendar URLs masked)
 - `POST /api/settings` - Update settings
 - `POST /reload` - Force all clients to reload
+- `POST /api/push/meters` - Replace the meters widget's data (off unless `"meters": {"push": true}`; format in server/meters.js)
 - `GET /status` - Health check
 
 ## Key Libraries
