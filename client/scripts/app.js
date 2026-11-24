@@ -33,7 +33,7 @@
     var name = '';
     if (match) {
       try {
-        name = decodeURIComponent(match[1]);
+        name = decodeURIComponent(match[1].replace(/\+/g, ' '));
       } catch (e) {
         // Malformed escape (e.g. ?profile=%): ignore the parameter
         match = null;

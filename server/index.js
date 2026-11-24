@@ -452,6 +452,9 @@ app.post('/api/settings', function(req, res) {
     // Update brightness immediately
     broadcastBrightness();
 
+    // Re-send meters so a changed staleness threshold applies now
+    broadcastToModule('meters', 'update', metersUpdate());
+
     res.json({ success: true });
   } catch (e) {
     console.error('Error saving settings:', e);
