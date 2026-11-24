@@ -25,9 +25,17 @@
   // ?profile= with an empty value clears the remembered one.
   function getProfile() {
     var match = /[?&]profile=([^&#]*)/.exec(window.location.search);
+    var name = '';
+    if (match) {
+      try {
+        name = decodeURIComponent(match[1]);
+      } catch (e) {
+        // Malformed escape (e.g. ?profile=%): ignore the parameter
+        match = null;
+      }
+    }
     try {
       if (match) {
-        var name = decodeURIComponent(match[1]);
         if (name) {
           window.localStorage.setItem('liveboard.profile', name);
         } else {
@@ -38,7 +46,7 @@
       return window.localStorage.getItem('liveboard.profile') || '';
     } catch (e) {
       // Safari private mode throws on localStorage; use the URL only
-      return match ? decodeURIComponent(match[1]) : '';
+      return name;
     }
   }
 
