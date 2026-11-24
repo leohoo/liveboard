@@ -300,8 +300,8 @@ html, body {
 }
 
 .widget-meters .meters-group {
-  -webkit-flex: 1 1 340px;
-  flex: 1 1 340px;
+  -webkit-flex: 1 1 260px;
+  flex: 1 1 260px;
   margin: 0 18px 8px;
 }
 
