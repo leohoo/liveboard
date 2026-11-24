@@ -20,6 +20,30 @@
   var isBoosted = false; // true = 100% brightness from touch
   var dimTimer = null;
 
+  // Profile: from ?profile=NAME, remembered so a home-screen icon whose
+  // start URL drops the query (PWA manifest start_url "/") keeps it.
+  // ?profile= with an empty value clears the remembered one.
+  function getProfile() {
+    var match = /[?&]profile=([^&#]*)/.exec(window.location.search);
+    try {
+      if (match) {
+        var name = decodeURIComponent(match[1]);
+        if (name) {
+          window.localStorage.setItem('liveboard.profile', name);
+        } else {
+          window.localStorage.removeItem('liveboard.profile');
+        }
+        return name;
+      }
+      return window.localStorage.getItem('liveboard.profile') || '';
+    } catch (e) {
+      // Safari private mode throws on localStorage; use the URL only
+      return match ? decodeURIComponent(match[1]) : '';
+    }
+  }
+
+  var profile = getProfile();
+
   // Initialize connection
   function connect() {
     if (eventSource) {
@@ -31,7 +55,11 @@
 
     setStatus('Connecting...', '');
     var tzOffset = new Date().getTimezoneOffset();
-    eventSource = new EventSource('/events?tz=' + tzOffset);
+    var url = '/events?tz=' + tzOffset;
+    if (profile) {
+      url += '&profile=' + encodeURIComponent(profile);
+    }
+    eventSource = new EventSource(url);
 
     eventSource.onopen = function() {
       reconnectAttempts = 0;
