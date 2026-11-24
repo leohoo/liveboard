@@ -281,3 +281,122 @@ html, body {
   -webkit-transition: opacity 0.5s ease;
   transition: opacity 0.5s ease;
 }
+
+/* Meters widget: full row, groups side by side (stacked when narrow) */
+.widget-meters {
+  width: calc(100% - 30px);
+  max-width: 900px;
+  text-align: left;
+  padding: 24px 32px;
+}
+
+.widget-meters .meters-groups {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  margin: 0 -18px;
+}
+
+.widget-meters .meters-group {
+  -webkit-flex: 1 1 340px;
+  flex: 1 1 340px;
+  margin: 0 18px 8px;
+}
+
+.widget-meters .meters-name {
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  opacity: 0.6;
+  margin-bottom: 6px;
+}
+
+.widget-meters .meters-row {
+  margin: 10px 0 14px;
+}
+
+.widget-meters .meters-line,
+.widget-meters .meters-sub {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+}
+
+.widget-meters .meters-line {
+  -webkit-box-align: baseline;
+  -webkit-align-items: baseline;
+  align-items: baseline;
+}
+
+.widget-meters .meters-sub {
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.widget-meters .meters-label {
+  -webkit-box-flex: 1;
+  -webkit-flex: 1;
+  flex: 1;
+  font-size: 24px;
+  opacity: 0.85;
+}
+
+.widget-meters .meters-value {
+  font-size: 32px;
+  font-weight: 600;
+}
+
+.widget-meters .meters-bar {
+  display: block;
+  -webkit-box-flex: 1;
+  -webkit-flex: 1;
+  flex: 1;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.widget-meters .meters-fill {
+  display: block;
+  height: 100%;
+  background: #64b5f6;
+  border-radius: 5px;
+}
+
+.widget-meters .meters-reset {
+  font-size: 15px;
+  opacity: 0.55;
+  margin-left: 12px;
+  white-space: nowrap;
+  min-width: 118px;
+  text-align: right;
+}
+
+.widget-meters .meters-unavailable,
+.widget-meters .meters-waiting {
+  font-size: 22px;
+  opacity: 0.6;
+  margin-top: 18px;
+}
+
+.widget-meters .meters-foot {
+  font-size: 14px;
+  opacity: 0.45;
+  text-align: right;
+  margin-top: 2px;
+}
+
+.widget-meters.stale .meters-fill {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.widget-meters.stale .meters-foot {
+  opacity: 1;
+  color: #ffb74d;
+  font-size: 18px;
+}

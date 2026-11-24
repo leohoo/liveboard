@@ -4,10 +4,10 @@
  * settings.json:
  *   "profiles": {
  *     "default": { "modules": ["date", "weather", "calendar"] },
- *     "desk":    { "modules": ["date", "weather", "calendar", "quota"] }
+ *     "office":  { "modules": ["date", "weather", "meters", "calendar"] }
  *   }
  *
- * A client picks its profile with /?profile=desk. No profile, or an unknown
+ * A client picks its profile with /?profile=office. No profile, or an unknown
  * one, falls back to "default". Without a "profiles" block, "default" shows
  * the built-in modules, so existing setups keep working unchanged.
  */

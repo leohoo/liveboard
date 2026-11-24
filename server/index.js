@@ -7,6 +7,7 @@ var calendar = require('./calendar');
 var timezone = require('./timezone');
 var weather = require('./weather');
 var profiles = require('./profiles');
+var meters = require('./meters');
 
 var app = express();
 var PORT = process.env.PORT || 3000;
@@ -59,6 +60,22 @@ var weatherData = {
 
 // Calendar data cache
 var calendarEvents = { today: [], tomorrow: [] };
+
+// Latest pushed meters (in memory; the pusher resends on its own schedule)
+var meterStore = meters.createStore();
+var METERS_STALE_DEFAULT_MINUTES = 15;
+
+function metersUpdate() {
+  var cfg = settings.meters || {};
+  var minutes = typeof cfg.staleAfterMinutes === 'number' && cfg.staleAfterMinutes > 0
+    ? cfg.staleAfterMinutes : METERS_STALE_DEFAULT_MINUTES;
+  return {
+    id: 'meters',
+    meters: meterStore.get(),
+    staleAfter: minutes * 60 * 1000,
+    serverTime: Date.now()
+  };
+}
 
 // Calculate current brightness based on schedule (using client timezone)
 function getCurrentBrightness() {
@@ -291,20 +308,24 @@ app.get('/events', function(req, res) {
   clients.push(client);
   console.log('Client connected:', clientId, '(profile ' + profile.name + ') - Total clients:', clients.length);
 
-  // Send initial config: built-in widget order, filtered by the profile
-  var allWidgets = [
-    { id: 'date', type: 'date', value: '' },
-    Object.assign({ type: 'weather' }, weatherUpdate()),
-    {
+  // Send initial config: the profile's modules, in the profile's order
+  var allWidgets = {
+    date: { id: 'date', type: 'date', value: '' },
+    weather: Object.assign({ type: 'weather' }, weatherUpdate()),
+    calendar: {
       id: 'calendar',
       type: 'calendar',
       today: calendarEvents.today,
       tomorrow: calendarEvents.tomorrow
-    }
-  ];
+    },
+    meters: Object.assign({ type: 'meters' }, metersUpdate())
+  };
   sendEvent(res, 'config', {
     layout: 'single',
-    widgets: allWidgets.filter(function(w) { return profiles.hasModule(profile, w.id); })
+    serverTime: Date.now(),
+    widgets: profile.modules
+      .filter(function(id) { return Object.prototype.hasOwnProperty.call(allWidgets, id); })
+      .map(function(id) { return allWidgets[id]; })
   });
 
   // Send immediate date update
@@ -337,6 +358,21 @@ app.get('/events', function(req, res) {
     clients = clients.filter(function(c) { return c.id !== clientId; });
     console.log('Client disconnected:', clientId, '- Total clients:', clients.length);
   });
+});
+
+// Receive meters from a pusher (see server/meters.js for the format).
+// Off unless settings.json enables it: there is no auth, so only turn it
+// on where the LAN is trusted.
+app.post('/api/push/meters', function(req, res) {
+  if (!settings.meters || settings.meters.push !== true) {
+    return res.status(404).json({ error: 'meters push is disabled' });
+  }
+  var result = meterStore.push(req.body);
+  if (result.error) {
+    return res.status(result.status).json({ error: result.error });
+  }
+  broadcastToModule('meters', 'update', metersUpdate());
+  res.json({ success: true });
 });
 
 // Health check
