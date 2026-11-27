@@ -3,6 +3,7 @@
  */
 
 var timezone = require('../server/timezone');
+var weather = require('../server/weather');
 
 console.log('=== Weather Module Tests ===\n');
 
@@ -37,24 +38,38 @@ test('Hour index mapping: hour 23 uses index 23', function() {
   assertEqual(index, 23, 'Hour 23 index');
 });
 
-// Test: Temperature regex parsing
-test('Temperature regex extracts array correctly', function() {
-  var html = 'var temperatureData = [4.4,5.0,5.5,6.5];';
-  var match = html.match(/var temperatureData = \[([0-9.,\s]+)\]/);
-  if (!match) throw new Error('Regex did not match');
-  var temps = match[1].split(',').map(function(t) { return parseFloat(t.trim()); });
-  assertEqual(temps.length, 4, 'Array length');
-  assertEqual(temps[0], 4.4, 'First temp');
-  assertEqual(temps[3], 6.5, 'Last temp');
+// Fixture shaped like tenki.jp 1hour.html (2026-11-27): three 3-hourly
+// arrays (8 values) come before the three hourly arrays (24 values).
+var TODAY_HOURLY = [11.0,10.5,8.5,8.0,8.5,7.5,8.5,11.0,12.5,14.5,15.5,16.0,
+  16.0,16.5,16.0,15.0,13.5,13.0,14.0,13.0,14.0,14.0,14.2,14.1];
+var PAGE = [
+  'var temperatureData = [8.5,7.5,12.5,16.0,16.0,13.0,14.0,14.1];',
+  'var temperatureData = [13.7,11.5,12.0,15.7,20.7,16.9,15.6,13.7];',
+  'var temperatureData = [11.6,9.7,12.3,14.6,12.7,9.6,8.4,7.5];',
+  'var temperatureData = [' + TODAY_HOURLY.join(',') + '];',
+  'var temperatureData = [' + TODAY_HOURLY.map(function(t) { return t + 5; }).join(',') + '];'
+].join('\n');
+
+test('parseHourlyTemp skips 3-hourly arrays and uses today\'s 24-hour array', function() {
+  assertEqual(weather.parseHourlyTemp(PAGE, 0), 11.0, 'Hour 0 (column 01)');
+  assertEqual(weather.parseHourlyTemp(PAGE, 2), 8.5, 'Hour 2 (column 03)');
+  assertEqual(weather.parseHourlyTemp(PAGE, 8), 12.5, 'Hour 8 (column 09)');
+  assertEqual(weather.parseHourlyTemp(PAGE, 21), 14.0, 'Hour 21 (column 22)');
+  assertEqual(weather.parseHourlyTemp(PAGE, 23), 14.1, 'Hour 23 (column 24)');
 });
 
-// Test: Temperature regex handles whitespace
-test('Temperature regex handles whitespace', function() {
-  var html = 'var temperatureData = [4.4, 5.0, 5.5];';
-  var match = html.match(/var temperatureData = \[([0-9.,\s]+)\]/);
-  if (!match) throw new Error('Regex did not match');
-  var temps = match[1].split(',').map(function(t) { return parseFloat(t.trim()); });
-  assertEqual(temps[1], 5.0, 'Second temp with whitespace');
+test('parseHourlyTemp handles whitespace and negative temps', function() {
+  var temps = [];
+  for (var i = 0; i < 24; i++) temps.push(i - 3.5);
+  var html = 'var temperatureData = [' + temps.join(', ') + '];';
+  assertEqual(weather.parseHourlyTemp(html, 1), -2.5, 'Hour 1');
+  assertEqual(weather.parseHourlyTemp(html, 10), 6.5, 'Hour 10');
+});
+
+test('parseHourlyTemp returns null without a 24-hour array', function() {
+  var html = 'var temperatureData = [8.5,7.5,12.5,16.0,16.0,13.0,14.0,14.1];';
+  assertEqual(weather.parseHourlyTemp(html, 3), null, 'Only 3-hourly data');
+  assertEqual(weather.parseHourlyTemp('<html></html>', 3), null, 'No data');
 });
 
 // Test: JST time conversion for weather lookup
