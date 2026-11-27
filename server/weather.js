@@ -27,27 +27,10 @@ function fetchHourlyTemp(tenkiPath, callback) {
     res.on('data', function(chunk) { html += chunk; });
     res.on('end', function() {
       try {
-        // Extract first temperatureData array (today's hourly temps)
-        // Array index 0 = column "01" (00:00-01:00), index 23 = column "24" (23:00-24:00)
-        var tempMatch = html.match(/var temperatureData = \[([0-9.,\s]+)\]/);
-        if (tempMatch) {
-          var temps = tempMatch[1].split(',').map(function(t) {
-            return parseFloat(t.trim());
-          });
-
-          // Get current hour in JST (tenki.jp uses JST)
-          var now = timezone.toClientTime(new Date(), JST_OFFSET);
-          var currentHour = now.getHours();
-
-          // Hour N (N:00-N:59) uses column N+1 (index N)
-          // e.g., 10:30 is in period 10:00-11:00, labeled "11", index 10
-          var index = currentHour;
-          if (temps[index] !== undefined && !isNaN(temps[index])) {
-            callback(temps[index]);
-            return;
-          }
-        }
-        callback(null);
+        var now = timezone.toClientTime(new Date(), JST_OFFSET);
+        var temp = parseHourlyTemp(html, now.getHours());
+        if (temp === null) console.error('Hourly temp: no 24-hour temperatureData for hour ' + now.getHours());
+        callback(temp);
       } catch (e) {
         console.error('Hourly temp parse error:', e);
         callback(null);
@@ -57,6 +40,27 @@ function fetchHourlyTemp(tenkiPath, callback) {
     console.error('Hourly temp fetch error:', e);
     callback(null);
   });
+}
+
+/**
+ * Pick the current hour's temperature from the tenki.jp 1hour.html page.
+ * The page holds 3-hourly arrays (8 values per day) before the hourly ones
+ * (24 values per day); the first 24-value array is today's.
+ * Index 0 = column "01" (00:00-01:00), so hour N (N:00-N:59) uses index N.
+ * @param {string} html - Page HTML
+ * @param {number} hour - Current hour in JST (0-23)
+ * @returns {number|null}
+ */
+function parseHourlyTemp(html, hour) {
+  var re = /var temperatureData = \[([0-9.,\s-]+)\]/g;
+  var m;
+  while ((m = re.exec(html)) !== null) {
+    var temps = m[1].split(',').map(function(t) { return parseFloat(t.trim()); });
+    if (temps.length === 24) {
+      return isNaN(temps[hour]) ? null : temps[hour];
+    }
+  }
+  return null;
 }
 
 /**
@@ -110,5 +114,6 @@ function fetchForecast(tenkiPath, callback) {
 
 module.exports = {
   fetchForecast: fetchForecast,
-  fetchHourlyTemp: fetchHourlyTemp
+  fetchHourlyTemp: fetchHourlyTemp,
+  parseHourlyTemp: parseHourlyTemp
 };
